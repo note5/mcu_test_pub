@@ -22,7 +22,7 @@ void setup()
   // stepper defaults
   stepper.setMaxSpeed(1000); // 100
   stepper.setAcceleration(100);
-  // stepper.moveTo(4000);
+  stepper.setCurrentPosition(0);
 }
 void loop()
 {
