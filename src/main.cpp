@@ -22,7 +22,7 @@ void setup()
   // stepper defaults
   stepper.setMaxSpeed(1000); // 100
   stepper.setAcceleration(100);
-  stepper.moveTo(4000);
+  // stepper.moveTo(4000);
 }
 void loop()
 {
@@ -54,6 +54,6 @@ void loop()
 // run stepper motor
 void runStepperMotor()
 {
-  stepper.moveTo(80000);
+  stepper.moveTo(8000);
    stepper.runToNewPosition(4000);
 }
