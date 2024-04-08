@@ -67,10 +67,10 @@ void setup()
 void loop()
 {
   // wait for serial input
-  if (Serial.available())
+  if (Serial1.available())
   {
 
-    incoming_serial_command = Serial.readStringUntil('\n');
+    incoming_serial_command = Serial1.readStringUntil('\n');
     if (incoming_serial_command)
     {
       Serial.print("Incoming serial command ");
