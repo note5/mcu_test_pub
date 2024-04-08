@@ -37,7 +37,8 @@ bool in_coming_cmd = false;
 #define STEPPER_PULSE_PIN 12
 // crusher relay pin
 #define CRUSHER_CONTROL_PIN OUTPUT_8
-
+unsigned long crusher_start_time;
+unsigned long crusher_running_duration = 10000; // 10 run the crusher for 10 seconds
 // instance of stepper lib
 AccelStepper stepper(1, STEPPER_PULSE_PIN, STEPPER_DIR_PIN);
 
@@ -55,7 +56,9 @@ void setup()
   stepper.setAcceleration(200);
   // set crusher relay control pin to output
   pinMode(CRUSHER_CONTROL_PIN, OUTPUT);
-  //make all the ir sensor pins to input
+  //
+  crusher_start_time = millis();
+  // make all the ir sensor pins to input
   for (int i = 0; i < 8; i++)
   {
     pinMode(ir_sensors[i], INPUT);
@@ -79,7 +82,7 @@ void loop()
       {
         crusher_command = "ON";
         runStepperMotor();
-        runCrusher();
+        runCrusher(); // run crusher
       }
       if (incoming_serial_command == "OFF")
       {
@@ -87,6 +90,17 @@ void loop()
         stopCrusher();
       }
     }
+  }
+
+  // run the crusher for the duration set
+  if (millis() - crusher_start_time < crusher_running_duration && crusher_command == "ON")
+  {
+    runCrusher();
+  }
+  else
+  {
+    crusher_start_time = millis();
+    stopCrusher();
   }
 }
 
@@ -105,8 +119,6 @@ void runCrusher()
   Serial.println("Crusher is starting ....");
   digitalWrite(CRUSHER_CONTROL_PIN, HIGH);
   delay(100);
-  in_coming_cmd = false;
-  crusher_command = "";
 }
 
 // stop crusher
