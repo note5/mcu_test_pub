@@ -13,7 +13,7 @@ bool in_coming_cmd = false;
 // instance of stepper lib
 AccelStepper stepper(1, STEPPER_PULSE_PIN, STEPPER_DIR_PIN);
 
-//function prototype to control stepper
+// function prototype to control stepper
 void runStepperMotor();
 void setup()
 {
@@ -29,8 +29,8 @@ void loop()
   // wait for serial input
   if (Serial.available())
   {
-    
-    incoming_serial_command = Serial.readStringUntil('\r');
+
+    incoming_serial_command = Serial.readStringUntil('\n');
     if (incoming_serial_command)
     {
       Serial.print("Incoming serial command ");
@@ -55,6 +55,6 @@ void loop()
 void runStepperMotor()
 {
   Serial.print("stepper called ");
- stepper.moveTo(4000);
- stepper.runToPosition();
+  stepper.moveTo(4000);
+  stepper.runToPosition();
 }
