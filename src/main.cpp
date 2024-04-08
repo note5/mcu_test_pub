@@ -38,7 +38,7 @@ bool in_coming_cmd = false;
 // crusher relay pin
 #define CRUSHER_CONTROL_PIN OUTPUT_8
 unsigned long crusher_start_time;
-unsigned long crusher_running_duration = 10000; // 10 run the crusher for 10 seconds
+unsigned long crusher_running_duration = 30000; // 10 run the crusher for 10 seconds
 // instance of stepper lib
 AccelStepper stepper(1, STEPPER_PULSE_PIN, STEPPER_DIR_PIN);
 
