@@ -54,6 +54,7 @@ void loop()
 // run stepper motor
 void runStepperMotor()
 {
-  stepper.moveTo(8000);
-   stepper.runToNewPosition(4000);
+  Serial.print("stepper called ");
+ stepper.moveTo(4000);
+ stepper.runToPosition();
 }
