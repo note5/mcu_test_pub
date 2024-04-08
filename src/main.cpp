@@ -53,6 +53,13 @@ void setup()
   // stepper defaults
   stepper.setMaxSpeed(1500); // 100
   stepper.setAcceleration(200);
+  // set crusher relay control pin to output
+  pinMode(CRUSHER_CONTROL_PIN, OUTPUT);
+  //make all the ir sensor pins to input
+  for (int i = 0; i < 8; i++)
+  {
+    pinMode(ir_sensors[i], INPUT);
+  }
 }
 void loop()
 {
