@@ -100,7 +100,10 @@ void loop()
   else
   {
     crusher_start_time = millis();
-    stopCrusher();
+    if (crusher_command == "ON")
+    {
+      stopCrusher();
+    }
   }
 }
 
