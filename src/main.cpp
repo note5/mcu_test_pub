@@ -20,9 +20,9 @@ void setup()
   Serial.begin(9600);
   Serial1.begin(9600);
   // stepper defaults
-  stepper.setMaxSpeed(1000); // 100
-  stepper.setAcceleration(100);
-  stepper.setCurrentPosition(0);
+  stepper.setMaxSpeed(1500); // 100
+  stepper.setAcceleration(200);
+  
 }
 void loop()
 {
@@ -57,4 +57,5 @@ void runStepperMotor()
   Serial.print("stepper called ");
   stepper.moveTo(4000);
   stepper.runToPosition();
+  stepper.setCurrentPosition(0);
 }
