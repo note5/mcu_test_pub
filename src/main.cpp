@@ -27,7 +27,7 @@ void setup()
 void loop()
 {
   // wait for serial input
-  if (Serial1.available())
+  if (Serial.available())
   {
     
     incoming_serial_command = Serial.readStringUntil('\r');
