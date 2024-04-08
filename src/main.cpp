@@ -78,13 +78,13 @@ void loop()
 
       in_coming_cmd = true;
       // ----------------- assign crusher commands -----------------
-      if (incoming_serial_command == "ON")
+      if (incoming_serial_command.indexOf("ON") != -1)
       {
         crusher_command = "ON";
         runStepperMotor();
         runCrusher(); // run crusher
       }
-      if (incoming_serial_command == "OFF")
+      if (incoming_serial_command.indexOf("OFF") != -1)
       {
         crusher_command = "OFF";
         stopCrusher();
