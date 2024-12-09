@@ -2,8 +2,8 @@
 
 // Define the actual pin values
 const int ENA = 9;
-const int IN1 = 8;
-const int IN2 = 7;
+const int IN1 = 19;
+const int IN2 = 18;
 
 void motorForward() {
     digitalWrite(IN1, HIGH);

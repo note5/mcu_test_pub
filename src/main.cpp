@@ -1,14 +1,17 @@
 #include <Arduino.h>
 #include "motor_control.h"
 #include "level_sensor.h"
+#include "door_state.h"
 
 I2cLevelSensor level_sensor;
+//
+DoorState service_door(24, "service");
+DoorState left_door(25, "left");
+DoorState right_door(26, "right");
 
 void setup()
 {
     Serial1.begin(9600);
-    Serial.begin(9600);
-
     pinMode(ENA, OUTPUT);
     pinMode(IN1, OUTPUT);
     pinMode(IN2, OUTPUT);
@@ -18,33 +21,60 @@ void setup()
     if (!level_sensor.begin())
     {
         Serial1.println("Sensor not found!");
-        while (1)
-            ;
     }
+    // set door interrupt
+    service_door.begin();
+    left_door.begin();
+    right_door.begin();
 }
 
 void loop()
 {
-    float distance = level_sensor.readDistanceInCM();
-    Serial1.print("Distance: ");
-    Serial1.print(distance);
-    Serial1.println(" cm");
-    delay(100);
+    // Update door states
+    service_door.update();
+    left_door.update();
+    right_door.update();
+    //
+    // if (service_door.isTriggered())
+    // {
+    //     Serial1.println("Service door is triggered");
+    //     service_door.clearTrigger();
+    // }
+
+    // if (left_door.isTriggered())
+    // {
+    //     Serial1.println("Left door is triggered");
+    //     left_door.clearTrigger();
+    // }
+
+    // if (right_door.isTriggered())
+    // {
+    //     Serial1.println("Right door is triggered");
+    //     right_door.clearTrigger();
+    // }
+
     if (Serial1.available() > 0)
     {
         String command = Serial1.readStringUntil('\n');
         command.trim();
-
+        // get pin level
         if (command == "level")
         {
-            float avgDistance = level_sensor.readAverageDistance(10, 100);
-            Serial1.print("Average Distance: ");
-            Serial1.print(avgDistance);
-            Serial1.println(" cm");
+            float avgDistance = level_sensor.readAverageDistance(5, 100);
+            // format level:value
+            Serial1.print("level:");
+            Serial1.println(avgDistance);
+            return;
+        }
+        if (command == "door-status")
+        {
+            DoorState::getDoorStates();
+            return;
         }
         else
         {
             processCommand(command); // Handle motor commands
+            return;
         }
     }
 }
