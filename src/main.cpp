@@ -66,7 +66,7 @@ void loop()
             Serial1.println(avgDistance);
             return;
         }
-        if (command == "door-status")
+        if (command == "  ")
         {
             DoorState::getDoorStates();
             return;
