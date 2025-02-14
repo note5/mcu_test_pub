@@ -19,7 +19,7 @@ void DoorState::begin() {
     pinMode(pin, INPUT);
     lastState = digitalRead(pin);
 }
-
+//update door state showing Ken
 void DoorState::update() {
     bool currentState = digitalRead(pin);
     

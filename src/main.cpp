@@ -34,24 +34,6 @@ void loop()
     service_door.update();
     left_door.update();
     right_door.update();
-    //
-    // if (service_door.isTriggered())
-    // {
-    //     Serial1.println("Service door is triggered");
-    //     service_door.clearTrigger();
-    // }
-
-    // if (left_door.isTriggered())
-    // {
-    //     Serial1.println("Left door is triggered");
-    //     left_door.clearTrigger();
-    // }
-
-    // if (right_door.isTriggered())
-    // {
-    //     Serial1.println("Right door is triggered");
-    //     right_door.clearTrigger();
-    // }
 
     if (Serial1.available() > 0)
     {
