@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HC-05 Motor Control Interface</title>
+    <link href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900|Material+Icons" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/quasar@2.12.0/dist/quasar.prod.css" rel="stylesheet">
+</head>
+
+<body>
+    <div id="app">
+        <q-layout view="lHh Lpr lFf">
+            <q-header elevated class="bg-primary text-white">
+                <q-toolbar>
+                    <q-toolbar-title>
+
+                        Bucket Control Interface
+                    </q-toolbar-title>
+                    <q-space />
+                    <q-chip :color="connected ? 'positive' : 'negative'" text-color="white" icon="circle">
+                        {{ connected ? 'Connected' : 'Disconnected' }}
+                    </q-chip>
+                </q-toolbar>
+            </q-header>
+
+            <q-page-container>
+                <q-page padding>
+                    <!-- Connection Controls -->
+                    <q-card class="q-mb-md">
+                        <q-card-section class="text-center flex">
+                            <div class="">
+                                <q-btn :loading="connecting" :disable="connected" @click="connect" color="positive"
+                                    icon="bluetooth_connected" label="Connect to HC-05" class="q-mr-sm" />
+                            </div>
+                            <div class="">
+                                <q-btn :disable="!connected" @click="disconnect" color="negative"
+                                    icon="bluetooth_disabled" label="Disconnect" />
+                            </div>
+                        </q-card-section>
+                    </q-card>
+
+                    <!-- Motor Controls -->
+                    <q-card class="q-mb-md">
+                        <q-card-section>
+                            <div class="text-h6 q-mb-md">
+                                Motor Controls
+                            </div>
+
+                            <div class="row q-gutter-md">
+                                <!-- Motor 1 -->
+                                <div class="col-12 col-md-5">
+                                    <q-card bordered>
+                                        <q-card-section class="bg-blue-1">
+                                            <div class="text-subtitle1 text-center">
+                                      
+                                                Motor 1
+                                            </div>
+                                        </q-card-section>
+
+                                        <q-card-section>
+                                            <div class="q-mb-md">
+                                                <q-slider v-model="motor1.pwm" :min="0" :max="255" :step="5" label
+                                                    label-always color="blue" track-color="blue-2" @update:model-value="e=>controlMotor(1, motor1.direction)"
+                                                    :disable="!connected" />
+                                                <div class="text-caption text-center">PWM Speed: {{ motor1.pwm }}</div>
+                                            </div>
+
+                                            <div class="q-gutter-sm">
+                                                <div class="">
+                                                    <q-btn @click="controlMotor(1, 'clockwise')" :disable="!connected"
+                                                        :color="motor1.direction === 'clockwise' ? 'positive' : 'blue'"
+                                                        :outline="motor1.direction !== 'clockwise'" icon="refresh"
+                                                        label="Clockwise" class="full-width q-mb-xs" />
+                                                </div>
+                                                <q-btn @click="controlMotor(1, 'anticlockwise')" :disable="!connected"
+                                                    :color="motor1.direction === 'anticlockwise' ? 'positive' : 'blue'"
+                                                    :outline="motor1.direction !== 'anticlockwise'" icon="refresh"
+                                                    label="Anti-Clockwise" class="full-width" />
+                                            </div>
+
+                                            <q-btn @click="controlMotor(1, 'stop')" :disable="!connected"
+                                                color="negative" icon="stop" label="Stop Motor 1"
+                                                class="full-width q-mt-sm" />
+                                        </q-card-section>
+                                    </q-card>
+                                </div>
+
+                                <!-- Motor 2 -->
+                                <div class="col-12 col-md-5">
+                                    <q-card bordered>
+                                        <q-card-section class="bg-green-1">
+                                            <div class="text-subtitle1 text-center">
+                                           
+                                                Motor 2
+                                            </div>
+                                        </q-card-section>
+
+                                        <q-card-section>
+                                            <div class="q-mb-md">
+                                                <q-slider v-model="motor2.pwm" :min="0" :max="255" :step="5" label
+                                                    label-always color="green" track-color="green-2"  @update:model-value="e=>controlMotor(2, motor2.direction)"
+                                                    :disable="!connected" />
+                                                <div class="text-caption text-center">PWM Speed: {{ motor2.pwm }}</div>
+                                            </div>
+
+                                            <div class="q-gutter-sm">
+                                                <div class="">
+                                                    <q-btn @click="controlMotor(2, 'clockwise')" :disable="!connected"
+                                                        :color="motor2.direction === 'clockwise' ? 'positive' : 'green'"
+                                                        :outline="motor2.direction !== 'clockwise'" icon="refresh"
+                                                        label="Clockwise" class="full-width q-mb-xs" />
+                                                </div>
+                                                <q-btn @click="controlMotor(2, 'anticlockwise')" :disable="!connected"
+                                                    :color="motor2.direction === 'anticlockwise' ? 'positive' : 'green'"
+                                                    :outline="motor2.direction !== 'anticlockwise'" icon="refresh"
+                                                    label="Anti-Clockwise" class="full-width" />
+                                            </div>
+
+                                            <q-btn @click="controlMotor(2, 'stop')" :disable="!connected"
+                                                color="negative" icon="stop" label="Stop Motor 2"
+                                                class="full-width q-mt-sm" />
+                                        </q-card-section>
+                                    </q-card>
+                                </div>
+                            </div>
+
+                            <!-- Emergency Stop -->
+                            <div class="text-center q-mt-md">
+                                <q-btn @click="emergencyStop" :disable="!connected" size="lg" color="red" icon="warning"
+                                    label="EMERGENCY STOP ALL" class="text-weight-bold" />
+                            </div>
+                        </q-card-section>
+                    </q-card>
+
+                    <!-- Communication Areas -->
+                    <div class="row q-gutter-md">
+                        <!-- Send Commands -->
+                        <div class="col-12 col-md-5">
+                            <q-card>
+                                <q-card-section>
+                                    <div class="text-h6 q-mb-md">
+                  
+                                        Send Custom Commands
+                                    </div>
+
+                                    <q-input v-model="customCommand" outlined label="Enter custom command"
+                                        hint="Send any custom command to the device" :disable="!connected"
+                                        @keyup.enter="sendCustomCommand" class="q-mb-md">
+                                        <template v-slot:append>
+                                            <q-btn @click="sendCustomCommand"
+                                                :disable="!connected || !customCommand.trim()" round dense flat
+                                                icon="send" color="primary" />
+                                        </template>
+                                    </q-input>
+
+                                    <!-- Quick Commands -->
+                                    <div class="text-subtitle2 q-mb-sm">Quick Commands:</div>
+                                    <div class="q-gutter-xs">
+                                        <q-btn v-for="cmd in quickCommands" :key="cmd.label"
+                                            @click="sendCommand(cmd.command)" :disable="!connected" size="sm" outline
+                                            color="primary" :label="cmd.label" />
+                                    </div>
+                                </q-card-section>
+                            </q-card>
+                        </div>
+
+                        <!-- Receive Data -->
+                        <div class="col-12 col-md-6">
+                            <q-card>
+                                <q-card-section>
+                                    <div class="text-h6 q-mb-md">
+                                        Received Data
+                                        <q-space />
+                                        <q-btn @click="clearLog" icon="delete" color="negative" />
+                                    </div>
+
+                                    <q-scroll-area ref="scrollArea" style="height: 300px;"
+                                        class="bg-grey-1 rounded-borders q-pa-sm">
+                                        <div v-for="(log, index) in logs" :key="index" class="q-mb-xs">
+                                            <q-badge
+                                                :color="log.type === 'sent' ? 'blue' : log.type === 'received' ? 'green' : 'red'"
+                                                class="q-mr-xs">
+                                                {{ log.type.toUpperCase() }}
+                                            </q-badge>
+                                            <span class="text-caption text-grey-7">{{ log.timestamp }}</span><br>
+                                            <span class="text-body2">{{ log.message }}</span>
+                                        </div>
+                                        <div v-if="logs.length === 0" class="text-center text-grey-5 q-mt-lg">
+                                            No data received yet...
+                                        </div>
+                                    </q-scroll-area>
+                                </q-card-section>
+                            </q-card>
+                        </div>
+                    </div>
+
+              
+                </q-page>
+            </q-page-container>
+        </q-layout>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/quasar@2.12.0/dist/quasar.umd.prod.js"></script>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    connected: false,
+                    connecting: false,
+                    port: null,
+                    reader: null,
+                    writer: null,
+                    keepReading: false,
+
+                    motor1: {
+                        pwm: 150,
+                        direction: null
+                    },
+                    motor2: {
+                        pwm: 150,
+                        direction: null
+                    },
+
+                    customCommand: '',
+                    logs: [],
+
+                    quickCommands: [
+                        { label: 'Status', command: 'STATUS' },
+                        { label: 'Reset', command: 'RESET' },
+                        { label: 'Hello', command: 'HELLO' },
+                        { label: 'Version', command: 'VERSION' }
+                    ]
+                }
+            },
+
+            methods: {
+                async connect() {
+                    if (!("serial" in navigator)) {
+                        this.showNotify('Web Serial API not supported. Use Chrome or Edge.', 'negative');
+                        return;
+                    }
+
+                    this.connecting = true;
+
+                    try {
+                        this.port = await navigator.serial.requestPort();
+
+                        await this.port.open({
+                            baudRate: 9600,
+                            dataBits: 8,
+                            stopBits: 1,
+                            parity: 'none'
+                        });
+
+                        this.writer = this.port.writable.getWriter();
+                        this.reader = this.port.readable.getReader();
+                        this.keepReading = true;
+                        this.connected = true;
+
+                        this.showNotify('Connected to HC-05!', 'positive');
+
+                        // Start reading loop
+                        this.readLoop();
+
+                        // Send connection test
+                        await this.sendCommand('HELLO');
+
+                    } catch (error) {
+                        this.showNotify(`Connection failed: ${error.message}`, 'negative');
+                        console.error('Connection error:', error);
+                    } finally {
+                        this.connecting = false;
+                    }
+                },
+
+                async disconnect() {
+                    this.keepReading = false;
+
+                    if (this.reader) {
+                        await this.reader.cancel();
+                        await this.reader.releaseLock();
+                    }
+
+                    if (this.writer) {
+                        await this.writer.releaseLock();
+                    }
+
+                    if (this.port) {
+                        await this.port.close();
+                    }
+
+                    this.connected = false;
+                    this.motor1.direction = null;
+                    this.motor2.direction = null;
+
+                    this.showNotify('Disconnected', 'info');
+                },
+
+                async controlMotor(motorNum, command) {
+                    const motor = motorNum === 1 ? this.motor1 : this.motor2;
+                    const cmd = `Motor${motorNum}:pwm=${motor.pwm},cmd=${command}`;
+
+                    await this.sendCommand(cmd);
+
+                    // Update UI state
+                    if (command === 'stop') {
+                        motor.direction = null;
+                    } else {
+                        motor.direction = command;
+                    }
+                },
+
+                async emergencyStop() {
+                    await this.controlMotor(1, 'stop');
+                    await this.controlMotor(2, 'stop');
+                    this.showNotify('Emergency Stop Activated!', 'negative');
+                },
+
+                async sendCustomCommand() {
+                    if (this.customCommand.trim()) {
+                        await this.sendCommand(this.customCommand.trim());
+                        this.customCommand = '';
+                    }
+                },
+
+                async sendCommand(command) {
+                    if (this.writer && command) {
+                        try {
+                            const encoder = new TextEncoder();
+                            await this.writer.write(encoder.encode(command + '\n'));
+
+                            this.addLog(command, 'sent');
+
+                        } catch (error) {
+                            this.addLog(`Send error: ${error.message}`, 'error');
+                        }
+                    }
+                },
+
+                   async readLoop() {
+                    try {
+                        while (this.keepReading && this.reader) {
+                            try {
+                                const { value, done } = await this.reader.read();
+                                
+                                if (done) {
+                                    console.log('Reader stream done');
+                                    break;
+                                }
+                                
+                                if (value && value.length > 0) {
+                                    const decoder = new TextDecoder();
+                                    const chunk = decoder.decode(value);
+                                    
+                                    // Add chunk to buffer
+                                    this.inputBuffer += chunk;
+                                    
+                                    // Process complete lines
+                                    this.processLines();
+                                }
+                                
+                            } catch (readError) {
+                                if (readError.name === 'NetworkError' || readError.name === 'InvalidStateError') {
+                                    console.log('Serial port disconnected');
+                                    break;
+                                } else {
+                                    this.addLog(`Read error: ${readError.message}`, 'error');
+                                    await new Promise(resolve => setTimeout(resolve, 100)); // Brief delay before retry
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('ReadLoop error:', error);
+                        this.addLog(`ReadLoop error: ${error.message}`, 'error');
+                    } finally {
+                        console.log('ReadLoop ended');
+                    }
+                },
+
+                processLines() {
+                    const lines = this.inputBuffer.split('\n');
+                    
+                    // Keep the last incomplete line in buffer
+                    this.inputBuffer = lines.pop() || '';
+                    
+                    // Process each complete line
+                    lines.forEach(line => {
+                        const trimmedLine = line.replace(/\r/g, '').trim();
+                        if (trimmedLine) {
+                            this.addLog(trimmedLine, 'received');
+                        }
+                    });
+                },
+
+                addLog(message, type) {
+                    const timestamp = new Date().toLocaleTimeString();
+                    this.logs.push({
+                        message,
+                        type,
+                        timestamp
+                    });
+
+                    // Keep only last 50 logs
+                    if (this.logs.length > 50) {
+                        this.logs.shift();
+                    }
+
+                    // Scroll to bottom
+                    this.$nextTick(() => {
+                        if (this.$refs.scrollArea) {
+                            this.$refs.scrollArea.setScrollPosition('vertical', 999999);
+                        }
+                    });
+                },
+
+                clearLog() {
+                    this.logs = [];
+                },
+
+                showNotify(message, color) {
+                    this.$q.notify({
+                        message,
+                        color,
+                        position: 'top',
+                        timeout: 3000
+                    });
+                }
+            },
+
+            beforeUnmount() {
+                if (this.connected) {
+                    this.disconnect();
+                }
+            }
+        }).use(Quasar, {
+            plugins: {
+                Notify: Quasar.Notify
+            }
+        }).mount('#app');
+    </script>
+</body>
+
+</html>

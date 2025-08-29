@@ -1,62 +1,109 @@
-#include <Arduino.h>
-#include "motor_control.h"
-#include "level_sensor.h"
-#include "door_state.h"
+#include "common.h"
+#include "timing.h"
+#include "gyro.h"
+#include "bucket-control.h"
 
-I2cLevelSensor level_sensor;
-//
-DoorState service_door(24, "service");
-DoorState left_door(25, "left");
-DoorState right_door(26, "right");
+// Create custom timers if needed
+SmartDelay monitorSwitchesInterval(100); // 100ms custom timer
+
+// Define struct for motor2
+struct Motor1Data {
+    int speed;
+    String cmd;
+};
+// Define struct for motor2
+struct Motor2Data {
+    int speed;
+    String cmd;
+};
+// Define struct for motor2
+struct Motor3Data {
+    int speed;
+    String cmd;
+};
+// Define struct for motor2
+struct Motor4Data {
+    int speed;
+    String cmd;
+};
+
+// Create instance of the struct
+Motor2Data motor1;
+Motor2Data motor2;
+Motor2Data motor3;
+Motor2Data motor4;
+
+bool motor_1_running = false;
+bool motor_2_running = false;
+bool motor_3_running = false;
+bool motor_4_running = false;
 
 void setup()
 {
     Serial1.begin(9600);
-    pinMode(ENA, OUTPUT);
-    pinMode(IN1, OUTPUT);
-    pinMode(IN2, OUTPUT);
-    // Initially stop the motor
-    motorStop();
-    // Level sensor setup
-    if (!level_sensor.begin())
-    {
-        Serial1.println("Sensor not found!");
-    }
-    // set door interrupt
-    service_door.begin();
-    left_door.begin();
-    right_door.begin();
+    Wire.begin();
+
+    // Initialize MPU6050
+    Gyro::begin();
+    // init bucket control
+    BucketControl::init();
+    debugln("MPU6050 initialized...");
+    
+    // Initialize motor2 struct
+    motor2.speed = 0;
+    motor2.cmd = "";
 }
 
 void loop()
 {
-    // Update door states
-    service_door.update();
-    left_door.update();
-    right_door.update();
-
     if (Serial1.available() > 0)
     {
         String command = Serial1.readStringUntil('\n');
         command.trim();
+        debug("incoming serial data: ");
+        debugln(command);
+        
         // get pin level
-        if (command == "level")
+        if (command.indexOf("Motor1:") != -1)
         {
-            float avgDistance = level_sensor.readAverageDistance(5, 100);
-            // format level:value
-            Serial1.print("level:");
-            Serial1.println(avgDistance);
-            return;
+             String pwm_str = BucketControl::getValue(command, "pwm=");
+            String cmd = BucketControl::getValue(command, "cmd=");
+            motor1.cmd = cmd;
+            motor1.speed = pwm_str.length() > 0 ? pwm_str.toInt() : 110;
+            motor_1_running = true;
         }
-        if (command == "  ")
+        if (command.indexOf("Motor2:") != -1)
         {
-            DoorState::getDoorStates();
-            return;
+            String pwm_str = BucketControl::getValue(command, "pwm=");
+            String cmd = BucketControl::getValue(command, "cmd=");
+            motor2.cmd = cmd;
+            motor2.speed = pwm_str.length() > 0 ? pwm_str.toInt() : 110;
+            motor_2_running = true;
         }
-        else
-        {
-            processCommand(command); // Handle motor commands
-            return;
-        }
+    }
+    
+    // Execute motor commands
+    if (motor_1_running)
+    {
+        BucketControl::motor1Ctrl(motor1.cmd, motor1.speed);
+    }
+    if (motor_2_running)
+    {
+        BucketControl::motor2Ctrl(motor2.cmd, motor2.speed);
+    }
+
+    // Non-blocking orientation updates using pre-defined timer
+    if (Timing::shouldUpdateOrientation())
+    {
+        // Update sensor data
+        Gyro::update();
+        Serial1.print("Tilt: ");
+        Serial1.println(Gyro::getTiltString());
+      
+    }
+
+    if (monitorSwitchesInterval.isReady())
+    {
+        BucketControl::monitorSwitches();
     }
 }
