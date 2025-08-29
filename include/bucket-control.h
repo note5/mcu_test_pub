@@ -21,6 +21,14 @@
 #define MOTOR_2_A 19   //
 #define MOTOR_2_B 18   //
 #define MOTOR_2_PWM 15 //
+// Motor 3
+#define MOTOR_3_A 4    //
+#define MOTOR_3_B 5    //
+#define MOTOR_3_PWM 13 //
+// Motor 4
+#define MOTOR_4_A 6    //
+#define MOTOR_4_B 7    //
+#define MOTOR_4_PWM 12 //
 
 namespace BucketControl
 {
@@ -40,13 +48,22 @@ namespace BucketControl
         pinMode(BOTTOM_LIMIT_SW_2, INPUT);
         pinMode(BOTTOM_LIMIT_SW_3, INPUT);
         pinMode(BOTTOM_LIMIT_SW_4, INPUT);
-        //
+        // Motors
         pinMode(MOTOR_1_A, OUTPUT);
         pinMode(MOTOR_1_B, OUTPUT);
         pinMode(MOTOR_1_PWM, OUTPUT);
+
         pinMode(MOTOR_2_A, OUTPUT);
         pinMode(MOTOR_2_B, OUTPUT);
         pinMode(MOTOR_2_PWM, OUTPUT);
+
+        pinMode(MOTOR_3_A, OUTPUT);
+        pinMode(MOTOR_3_B, OUTPUT);
+        pinMode(MOTOR_3_PWM, OUTPUT);
+
+        pinMode(MOTOR_4_A, OUTPUT);
+        pinMode(MOTOR_4_B, OUTPUT);
+        pinMode(MOTOR_4_PWM, OUTPUT);
     }
     // monitor limit switches
     void monitorSwitches()
@@ -93,7 +110,6 @@ namespace BucketControl
     // Motor 1 control
     void motor1Ctrl(String cmd, uint8_t speed)
     {
-       
 
         //
         if (cmd == "clockwise")
@@ -136,13 +152,64 @@ namespace BucketControl
             digitalWrite(MOTOR_2_B, LOW);
         }
     }
+    // Motor 3 control
+    void motor3Ctrl(String cmd, uint8_t speed)
+    {
+        //
+        if (cmd == "clockwise")
+        {
+            digitalWrite(MOTOR_3_A, HIGH);
+            digitalWrite(MOTOR_3_B, LOW);
+            analogWrite(MOTOR_3_PWM, speed);
+        }
+        if (cmd == "anticlockwise")
+        {
+            digitalWrite(MOTOR_3_A, LOW);
+            digitalWrite(MOTOR_3_B, HIGH);
+            analogWrite(MOTOR_3_PWM, speed);
+        }
+        if (cmd == "stop")
+        {
+            digitalWrite(MOTOR_3_A, LOW);
+            digitalWrite(MOTOR_3_B, LOW);
+        }
+    }
+    // Motor 4 control
+    void motor4Ctrl(String cmd, uint8_t speed)
+    {
+        //
+        if (cmd == "clockwise")
+        {
+            digitalWrite(MOTOR_4_A, HIGH);
+            digitalWrite(MOTOR_4_B, LOW);
+            analogWrite(MOTOR_4_PWM, speed);
+        }
+        if (cmd == "anticlockwise")
+        {
+            digitalWrite(MOTOR_4_A, LOW);
+            digitalWrite(MOTOR_4_B, HIGH);
+            analogWrite(MOTOR_4_PWM, speed);
+        }
+        if (cmd == "stop")
+        {
+            digitalWrite(MOTOR_4_A, LOW);
+            digitalWrite(MOTOR_4_B, LOW);
+        }
+    }
     // stop all motors
     void stopAllMotors()
     {
         digitalWrite(MOTOR_1_A, LOW);
         digitalWrite(MOTOR_1_B, LOW);
+        //
         digitalWrite(MOTOR_2_A, LOW);
         digitalWrite(MOTOR_2_B, LOW);
+        //
+        digitalWrite(MOTOR_3_A, LOW);
+        digitalWrite(MOTOR_3_B, LOW);
+        //
+        digitalWrite(MOTOR_4_A, LOW);
+        digitalWrite(MOTOR_4_B, LOW);
     }
     //
     String getValue(String cmd, String keyword)

@@ -80,6 +80,22 @@ void loop()
             motor2.speed = pwm_str.length() > 0 ? pwm_str.toInt() : 110;
             motor_2_running = true;
         }
+        if (command.indexOf("Motor3:") != -1)
+        {
+            String pwm_str = BucketControl::getValue(command, "pwm=");
+            String cmd = BucketControl::getValue(command, "cmd=");
+            motor3.cmd = cmd;
+            motor3.speed = pwm_str.length() > 0 ? pwm_str.toInt() : 110;
+            motor_3_running = true;
+        }
+        if (command.indexOf("Motor4:") != -1)
+        {
+            String pwm_str = BucketControl::getValue(command, "pwm=");
+            String cmd = BucketControl::getValue(command, "cmd=");
+            motor4.cmd = cmd;
+            motor4.speed = pwm_str.length() > 0 ? pwm_str.toInt() : 110;
+            motor_4_running = true;
+        }
     }
     
     // Execute motor commands
@@ -90,6 +106,14 @@ void loop()
     if (motor_2_running)
     {
         BucketControl::motor2Ctrl(motor2.cmd, motor2.speed);
+    }
+    if (motor_3_running)
+    {
+        BucketControl::motor3Ctrl(motor2.cmd, motor2.speed);
+    }
+    if (motor_4_running)
+    {
+        BucketControl::motor4Ctrl(motor2.cmd, motor2.speed);
     }
 
     // Non-blocking orientation updates using pre-defined timer
