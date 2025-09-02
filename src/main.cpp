@@ -7,22 +7,26 @@
 SmartDelay monitorSwitchesInterval(100); // 100ms custom timer
 
 // Define struct for motor2
-struct Motor1Data {
+struct Motor1Data
+{
     int speed;
     String cmd;
 };
 // Define struct for motor2
-struct Motor2Data {
+struct Motor2Data
+{
     int speed;
     String cmd;
 };
 // Define struct for motor2
-struct Motor3Data {
+struct Motor3Data
+{
     int speed;
     String cmd;
 };
 // Define struct for motor2
-struct Motor4Data {
+struct Motor4Data
+{
     int speed;
     String cmd;
 };
@@ -38,6 +42,11 @@ bool motor_2_running = false;
 bool motor_3_running = false;
 bool motor_4_running = false;
 
+// Continuous bucket movement with auto-leveling
+bool bucket_auto_leveling = false;
+String bucket_direction = "";
+uint8_t bucket_base_speed = 110;
+
 void setup()
 {
     Serial1.begin(9600);
@@ -48,7 +57,7 @@ void setup()
     // init bucket control
     BucketControl::init();
     debugln("MPU6050 initialized...");
-    
+
     // Initialize motor2 struct
     motor2.speed = 0;
     motor2.cmd = "";
@@ -62,15 +71,46 @@ void loop()
         command.trim();
         debug("incoming serial data: ");
         debugln(command);
-        
-        // get pin level
-        if (command.indexOf("Motor1:") != -1)
+
+        // Bucket movement command with auto-leveling (continuous mode)
+        if (command.indexOf("Bucket:") != -1)
         {
-             String pwm_str = BucketControl::getValue(command, "pwm=");
+            String pwm_str = BucketControl::getValue(command, "pwm=");
+            String cmd = BucketControl::getValue(command, "cmd=");
+            
+            if (cmd == "up" || cmd == "down")
+            {
+                bucket_direction = cmd;
+                bucket_base_speed = pwm_str.length() > 0 ? pwm_str.toInt() : 110;
+                bucket_auto_leveling = true;
+                
+                // Stop individual motor flags to avoid conflicts
+                motor_1_running = false;
+                motor_2_running = false;
+                motor_3_running = false;
+                motor_4_running = false;
+                
+                debug("Bucket auto-leveling started: ");
+                debug(cmd);
+                debug(" at speed ");
+                debugln(bucket_base_speed);
+            }
+            else if (cmd == "stop")
+            {
+                bucket_auto_leveling = false;
+                BucketControl::stopAllMotors();
+                debugln("Bucket auto-leveling stopped");
+            }
+        }
+        // Individual motor control (existing functionality)
+        else if (command.indexOf("Motor1:") != -1)
+        {
+            String pwm_str = BucketControl::getValue(command, "pwm=");
             String cmd = BucketControl::getValue(command, "cmd=");
             motor1.cmd = cmd;
             motor1.speed = pwm_str.length() > 0 ? pwm_str.toInt() : 110;
             motor_1_running = true;
+           
         }
         if (command.indexOf("Motor2:") != -1)
         {
@@ -79,6 +119,7 @@ void loop()
             motor2.cmd = cmd;
             motor2.speed = pwm_str.length() > 0 ? pwm_str.toInt() : 110;
             motor_2_running = true;
+        
         }
         if (command.indexOf("Motor3:") != -1)
         {
@@ -97,23 +138,32 @@ void loop()
             motor_4_running = true;
         }
     }
-    
-    // Execute motor commands
-    if (motor_1_running)
+
+    // Continuous bucket movement with auto-leveling
+    if (bucket_auto_leveling)
     {
-        BucketControl::motor1Ctrl(motor1.cmd, motor1.speed);
+        // Continuously call bucketMovement for real-time gyro-based leveling
+        BucketControl::bucketMovement(bucket_direction, bucket_base_speed);
     }
-    if (motor_2_running)
+    // Individual motor commands (only if not in auto-leveling mode)
+    else
     {
-        BucketControl::motor2Ctrl(motor2.cmd, motor2.speed);
-    }
-    if (motor_3_running)
-    {
-        BucketControl::motor3Ctrl(motor2.cmd, motor2.speed);
-    }
-    if (motor_4_running)
-    {
-        BucketControl::motor4Ctrl(motor2.cmd, motor2.speed);
+        if (motor_1_running)
+        {
+            BucketControl::motor1Ctrl(motor1.cmd, motor1.speed);
+        }
+        if (motor_2_running)
+        {
+            BucketControl::motor2Ctrl(motor2.cmd, motor2.speed);
+        }
+        if (motor_3_running)
+        {
+            BucketControl::motor3Ctrl(motor3.cmd, motor3.speed);
+        }
+        if (motor_4_running)
+        {
+            BucketControl::motor4Ctrl(motor4.cmd, motor4.speed);
+        }
     }
 
     // Non-blocking orientation updates using pre-defined timer
@@ -123,7 +173,6 @@ void loop()
         Gyro::update();
         Serial1.print("Tilt: ");
         Serial1.println(Gyro::getTiltString());
-      
     }
 
     if (monitorSwitchesInterval.isReady())

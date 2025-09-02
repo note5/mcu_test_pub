@@ -22,12 +22,12 @@
 #define MOTOR_2_B 18   //
 #define MOTOR_2_PWM 15 //
 // Motor 3
-#define MOTOR_3_A 4    //
-#define MOTOR_3_B 5    //
+#define MOTOR_3_A 0    //
+#define MOTOR_3_B 1    //
 #define MOTOR_3_PWM 13 //
 // Motor 4
-#define MOTOR_4_A 6    //
-#define MOTOR_4_B 7    //
+#define MOTOR_4_A 2    //
+#define MOTOR_4_B 3    //
 #define MOTOR_4_PWM 12 //
 
 namespace BucketControl
@@ -35,6 +35,11 @@ namespace BucketControl
     //
     void stopAllMotors();
     String getValue(String cmd, String keyword);
+    void bucketMovement(String direction, uint8_t baseSpeed);
+    
+    // Internal function for calculating leveling compensation
+    void calculateMotorSpeeds(float roll, float pitch, uint8_t baseSpeed, String direction, 
+                             uint8_t &motor1Speed, uint8_t &motor2Speed, uint8_t &motor3Speed, uint8_t &motor4Speed);
     //
     uint8_t top_limit_sw_1_val, top_limit_sw_2_val, top_limit_sw_3_val, top_limit_sw_4_val;
     uint8_t bottom_limit_sw_1_val, bottom_limit_sw_2_val, bottom_limit_sw_3_val, bottom_limit_sw_4_val;
@@ -225,6 +230,102 @@ namespace BucketControl
             endIndex = cmd.length();
 
         return cmd.substring(index, endIndex);
+    }
+    
+    // Calculate individual motor speeds based on gyro data for leveling
+    void calculateMotorSpeeds(float roll, float pitch, uint8_t baseSpeed, String direction, 
+                             uint8_t &motor1Speed, uint8_t &motor2Speed, uint8_t &motor3Speed, uint8_t &motor4Speed)
+    {
+        // Leveling compensation factor (adjust this value to tune responsiveness)
+        float compensationFactor = 2.0; // degrees per PWM unit adjustment
+        
+        // Calculate compensation values based on tilt
+        // Roll: positive = tilted right, negative = tilted left
+        // Pitch: positive = tilted forward, negative = tilted backward
+        int rollCompensation = (int)(roll * compensationFactor);
+        int pitchCompensation = (int)(pitch * compensationFactor);
+        
+        // Assume motor layout:
+        // Motor1: Front-Left,  Motor2: Front-Right
+        // Motor3: Back-Left,   Motor4: Back-Right
+        
+        // Apply compensation to each motor
+        int motor1Adjust = -pitchCompensation - rollCompensation; // Front-left
+        int motor2Adjust = -pitchCompensation + rollCompensation; // Front-right  
+        int motor3Adjust = pitchCompensation - rollCompensation;  // Back-left
+        int motor4Adjust = pitchCompensation + rollCompensation;  // Back-right
+        
+        // Calculate final speeds with constraints
+        motor1Speed = constrain(baseSpeed + motor1Adjust, 50, 255);
+        motor2Speed = constrain(baseSpeed + motor2Adjust, 50, 255);
+        motor3Speed = constrain(baseSpeed + motor3Adjust, 50, 255);
+        motor4Speed = constrain(baseSpeed + motor4Adjust, 50, 255);
+    }
+    
+    // Main bucket movement function with gyro-based leveling
+    void bucketMovement(String direction, uint8_t baseSpeed)
+    {
+        // Safety check - stop if any limit switch is active
+        if (top_limit_sw_1_val || top_limit_sw_2_val || top_limit_sw_3_val || top_limit_sw_4_val ||
+            bottom_limit_sw_1_val || bottom_limit_sw_2_val || bottom_limit_sw_3_val || bottom_limit_sw_4_val)
+        {
+            stopAllMotors();
+            debug("Movement stopped - limit switch active");
+            return;
+        }
+        
+        // Get current gyro readings
+        float currentRoll = Gyro::getRoll();
+        float currentPitch = Gyro::getPitch();
+        
+        // Calculate individual motor speeds for leveling
+        uint8_t motor1Speed, motor2Speed, motor3Speed, motor4Speed;
+        calculateMotorSpeeds(currentRoll, currentPitch, baseSpeed, direction, 
+                           motor1Speed, motor2Speed, motor3Speed, motor4Speed);
+        
+        // Determine motor direction based on command
+        String motorCmd;
+        if (direction == "up")
+        {
+            motorCmd = "clockwise"; // Adjust based on your motor wiring
+        }
+        else if (direction == "down")
+        {
+            motorCmd = "anticlockwise"; // Adjust based on your motor wiring
+        }
+        else if (direction == "stop")
+        {
+            stopAllMotors();
+            return;
+        }
+        else
+        {
+            debug("Invalid direction: ");
+            debugln(direction);
+            return;
+        }
+        
+        // Execute coordinated movement with leveling compensation
+        motor1Ctrl(motorCmd, motor1Speed);
+        motor2Ctrl(motorCmd, motor2Speed);
+        motor3Ctrl(motorCmd, motor3Speed);
+        motor4Ctrl(motorCmd, motor4Speed);
+        
+        // Debug output
+        debug("Bucket movement: ");
+        debug(direction);
+        debug(" | Roll: ");
+        debug(currentRoll);
+        debug(" | Pitch: ");
+        debug(currentPitch);
+        debug(" | Speeds: ");
+        debug(motor1Speed);
+        debug(",");
+        debug(motor2Speed);
+        debug(",");
+        debug(motor3Speed);
+        debug(",");
+        debugln(motor4Speed);
     }
 
 }
