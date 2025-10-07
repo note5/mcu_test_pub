@@ -486,10 +486,10 @@ namespace PlatformControl
         bottom_limit_sw_4_val = digitalRead(BOTTOM_LIMIT_SW_4);
 
         // If auto-leveling or moving up is active, skip global stop - let those functions handle per-motor stops
-        if (platform_auto_leveling || platform_moving_up)
-        {
-            return;
-        }
+        // if (platform_auto_leveling || platform_moving_up)
+        // {
+        //     return;
+        // }
 
         // stop all motors from moving up
         if (!top_limit_sw_1_val || !top_limit_sw_2_val || !top_limit_sw_3_val || !top_limit_sw_4_val)

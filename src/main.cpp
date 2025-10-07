@@ -6,8 +6,8 @@
 #include "lowering-platform.h"
 
 // Create custom timers if needed
-SmartDelay updateLevel(1000); // 100ms custom timer
-uint8_t algo_type = BUCKET_CONTROL;   //  Bucket control
+SmartDelay updateLevel(1000);       // 100ms custom timer
+uint8_t algo_type = BUCKET_CONTROL; //  Bucket control
 // uint8_t algo_type = PLATFORM_CONTROL; // Platform control
 void setup()
 {
@@ -49,5 +49,14 @@ void loop()
   if (algo_type == PLATFORM_CONTROL)
   {
     PlatformControl::forever();
+  }
+  if (updateLevel.isReady())
+  {
+    float pitch = Gyro::getPitch();
+    float roll = Gyro::getRoll();
+    debug("Pitch: ");
+    debug(pitch);
+    debug(" Roll: ");
+    debugln(roll);
   }
 }

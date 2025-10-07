@@ -23,10 +23,14 @@ namespace BucketControl
     uint8_t top_limit_sw_1_val, top_limit_sw_2_val, top_limit_sw_3_val, top_limit_sw_4_val;
     uint8_t bottom_limit_sw_1_val, bottom_limit_sw_2_val, bottom_limit_sw_3_val, bottom_limit_sw_4_val;
     //
-    // Command-based control flags
-    bool bucket_lowering = false;
-    bool bucket_raising = false;
-    bool bucket_tipping = false;
+    // Command-based control with single state variable
+    enum BucketOperation {
+        NONE,
+        LOWERING,
+        RAISING,
+        TIPPING
+    };
+    BucketOperation current_operation = NONE;
     int bucket_base_speed = 200;
     unsigned long hold_start_time = 0;
     const unsigned long HOLD_DURATION = 3000; // 3 seconds
@@ -108,53 +112,47 @@ namespace BucketControl
             if (cmd == "down")
             {
                 debugln("Bucket: Lowering with auto-leveling");
-                bucket_lowering = true;
-                bucket_raising = false;
-                bucket_tipping = false;
+                current_operation = LOWERING;
                 bucket_base_speed = speed;
                 command = "";
             }
             else if (cmd == "up")
             {
                 debugln("Bucket: Raising with auto-leveling");
-                bucket_raising = true;
-                bucket_lowering = false;
-                bucket_tipping = false;
+                current_operation = RAISING;
                 bucket_base_speed = speed;
                 command = "";
             }
             else if (cmd == "tip")
             {
                 debugln("Bucket: Starting tip sequence");
-                bucket_tipping = true;
-                bucket_lowering = false;
-                bucket_raising = false;
+                current_operation = TIPPING;
                 hold_start_time = 0; // Reset hold timer
                 command = "";
             }
             else if (cmd == "stop")
             {
                 debugln("Bucket: Stopping all operations");
-                bucket_lowering = false;
-                bucket_raising = false;
-                bucket_tipping = false;
+                current_operation = NONE;
                 stopAllMotors();
                 command = "";
             }
         }
 
-        // Execute active operation based on flags
-        if (bucket_lowering)
+        // Execute active operation
+        switch (current_operation)
         {
-            bucketLowerWithLeveling();
-        }
-        else if (bucket_raising)
-        {
-            bucketRaiseWithLeveling();
-        }
-        else if (bucket_tipping)
-        {
-            bucketTip();
+            case LOWERING:
+                bucketLowerWithLeveling();
+                break;
+            case RAISING:
+                bucketRaiseWithLeveling();
+                break;
+            case TIPPING:
+                bucketTip();
+                break;
+            case NONE:
+                break;
         }
 
         // monitor limit switches
@@ -345,9 +343,9 @@ namespace BucketControl
             // Check if tipped to approximately 80 degrees using gyro
             float pitch = Gyro::getPitch();
 
-            // When pitch reaches ~-80° (front is up, back is down), start holding
+            // When pitch reaches ~-55° (front is up, back is down), start holding
             // Negative pitch means back is tilted down (tipping backward to pour)
-            if (pitch <= -75.0) // Using -75° threshold to account for sensor accuracy
+            if (pitch <= -55.0) // Using -55° threshold
             {
                 // Stop motors 1&2
                 motor1.cmd = "stop";
@@ -367,7 +365,7 @@ namespace BucketControl
             if (millis() - hold_start_time >= HOLD_DURATION)
             {
                 debugln("Hold complete, tip sequence finished");
-                bucket_tipping = false;
+                current_operation = NONE;
                 hold_start_time = 0;
             }
         }
@@ -386,7 +384,7 @@ namespace BucketControl
         int motor3_speed = bucket_base_speed;
         int motor4_speed = bucket_base_speed;
 
-        // Pitch compensation (same logic as platform auto-leveling)
+        // Pitch compensation (5 degree threshold)
         if (pitch > 5.0)
         {
             motor1_speed = bucket_base_speed * 0.7;
@@ -398,7 +396,7 @@ namespace BucketControl
             motor4_speed = bucket_base_speed * 0.7;
         }
 
-        // Roll compensation
+        // Roll compensation (5 degree threshold)
         if (roll > 5.0)
         {
             motor2_speed = motor2_speed * 0.7;
@@ -452,7 +450,7 @@ namespace BucketControl
         if (!top_limit_sw_1_val && !top_limit_sw_2_val &&
             !top_limit_sw_3_val && !top_limit_sw_4_val)
         {
-            bucket_raising = false;
+            current_operation = NONE;
             stopAllMotors();
             debugln("Bucket fully raised");
             return;
@@ -478,7 +476,7 @@ namespace BucketControl
         int motor3_speed = bucket_base_speed;
         int motor4_speed = bucket_base_speed;
 
-        // Pitch compensation (same logic as platform auto-leveling)
+        // Pitch compensation (5 degree threshold)
         if (pitch > 5.0)
         {
             // Front is lower, slow down front motors
@@ -492,7 +490,7 @@ namespace BucketControl
             motor4_speed = bucket_base_speed * 0.7;
         }
 
-        // Roll compensation
+        // Roll compensation (5 degree threshold)
         if (roll > 5.0)
         {
             // Right is lower, slow down right motors
@@ -549,7 +547,7 @@ namespace BucketControl
             !bottom_limit_sw_3_val && !bottom_limit_sw_4_val)
         {
             debugln("All motors reached bottom - lowering complete");
-            bucket_lowering = false;
+            current_operation = NONE;
             stopAllMotors();
             return;
         }
@@ -572,27 +570,32 @@ namespace BucketControl
         bottom_limit_sw_2_val = digitalRead(BOTTOM_LIMIT_SW_2);
         bottom_limit_sw_3_val = digitalRead(BOTTOM_LIMIT_SW_3);
         bottom_limit_sw_4_val = digitalRead(BOTTOM_LIMIT_SW_4);
+        // stop all motors from moving up
+        //     if (!top_limit_sw_1_val || !top_limit_sw_2_val || !top_limit_sw_3_val || !top_limit_sw_4_val)
+        //     {
+        //         stopAllMotors();
+        //     }
+        }
+        //
+        void logSwitchStates()
+        {
+            debug("top 1:");
+            debug(top_limit_sw_1_val);
+            debug(" top 2:");
+            debug(top_limit_sw_2_val);
+            debug(" top 3:");
+            debug(top_limit_sw_3_val);
+            debug(" top 4:");
+            debugln(top_limit_sw_4_val);
+            debug(" bottom 1:");
+            debug(bottom_limit_sw_1_val);
+            debug(" bottom 2:");
+            debug(bottom_limit_sw_2_val);
+            debug(" bottom 3:");
+            debug(bottom_limit_sw_3_val);
+            debug(" bottom 4:");
+            debugln(bottom_limit_sw_4_val);
+        }
     }
-    //
-    void logSwitchStates()
-    {
-        debug("top 1:");
-        debug(top_limit_sw_1_val);
-        debug(" top 2:");
-        debug(top_limit_sw_2_val);
-        debug(" top 3:");
-        debug(top_limit_sw_3_val);
-        debug(" top 4:");
-        debugln(top_limit_sw_4_val);
-        debug(" bottom 1:");
-        debug(bottom_limit_sw_1_val);
-        debug(" bottom 2:");
-        debug(bottom_limit_sw_2_val);
-        debug(" bottom 3:");
-        debug(bottom_limit_sw_3_val);
-        debug(" bottom 4:");
-        debugln(bottom_limit_sw_4_val);
-    }
-}
 
 #endif
