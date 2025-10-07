@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HC-05 Motor Control Interface</title>
+    <link href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900|Material+Icons" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/quasar@2.12.0/dist/quasar.prod.css" rel="stylesheet">
+    <style>
+        .motor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 16px;
+        }
+        .status-indicator {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        .motor-status-active {
+            background: linear-gradient(45deg, #e3f2fd, #bbdefb);
+            border-left: 4px solid #2196f3;
+        }
+        .motor-status-stopped {
+            background: #fafafa;
+            border-left: 4px solid #9e9e9e;
+        }
+        .connection-banner {
+            background: linear-gradient(135deg, #1976d2, #42a5f5);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+        }
+        .motor-card {
+            transition: all 0.3s ease;
+        }
+        .motor-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+        .emergency-section {
+            background: linear-gradient(135deg, #d32f2f, #f44336);
+            color: white;
+            padding: 24px;
+            border-radius: 12px;
+            text-align: center;
+            margin: 24px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <q-layout view="lHh Lpr lFf">
+            <q-header elevated class="bg-primary text-white">
+                <q-toolbar>
+                    <q-toolbar-title>
+                        Advanced Motor Control System
+                    </q-toolbar-title>
+                    <q-space />
+                    <q-chip :color="connected ? 'positive' : 'negative'" text-color="white" 
+                            :class="connected ? 'status-indicator' : ''">
+                        {{ connected ? 'Connected' : 'Disconnected' }}
+                    </q-chip>
+                </q-toolbar>
+            </q-header>
+
+            <q-page-container>
+                <q-page padding>
+                    <!-- Connection Section -->
+                    <div class="connection-banner">
+                        <div class="row items-center justify-between">
+                            <div class="col-md-8 col-12">
+                                <div class="text-h5 q-mb-sm">
+                                    Bluetooth Connection
+                                </div>
+                                <div class="text-body2 opacity-80">
+                                    {{ connected ? 'Successfully connected to HC-05 module' : 'Connect to your HC-05 Bluetooth module to start controlling motors' }}
+                                </div>
+                            </div>
+                            <div class="flex">
+                                <div class="connection-buttons">
+                                    <q-btn 
+                                        :loading="connecting" 
+                                        :disable="connected" 
+                                        @click="connect" 
+                                        color="white"
+                                        text-color="primary"
+                                        label="Connect" 
+                                        size="lg"
+                                        class="q-mr-sm" 
+                                    />
+                                </div>
+                                <div class="disconnect-button">
+                                    <q-btn 
+                                        :disable="!connected" 
+                                        @click="disconnect" 
+                                        color="white"
+                                        text-color="negative"
+                                        label="Disconnect"
+                                        outline
+                                        size="lg"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System Status -->
+                    <q-card class="q-mb-lg">
+                        <q-card-section>
+                            <div class="text-h6 q-mb-md">
+                                System Status
+                            </div>
+                            <div class="row q-gutter-md">
+                                <div class="col">
+                                    <q-stat>
+                                        <q-stat-section>
+                                            <q-stat-label>Active Motors</q-stat-label>
+                                            <q-stat-value>{{ activeMotorCount }}</q-stat-value>
+                                        </q-stat-section>
+                                    </q-stat>
+                                </div>
+                                <div class="col">
+                                    <q-stat>
+                                        <q-stat-section>
+                                            <q-stat-label>Commands Sent</q-stat-label>
+                                            <q-stat-value>{{ commandCount }}</q-stat-value>
+                                        </q-stat-section>
+                                    </q-stat>
+                                </div>
+                                <div class="col">
+                                    <q-stat>
+                                        <q-stat-section>
+                                            <q-stat-label>Connection Time</q-stat-label>
+                                            <q-stat-value>{{ connectionTime }}</q-stat-value>
+                                        </q-stat-section>
+                                    </q-stat>
+                                </div>
+                            </div>
+                        </q-card-section>
+                    </q-card>
+
+                    <!-- Motor Controls -->
+                    <q-card class="q-mb-lg">
+                        <q-card-section>
+                            <div class="text-h6 q-mb-md">
+                                Motor Controls
+                                <q-space />
+                                <div class="add-motor-button">
+                                    <q-btn 
+                                        @click="showAddMotorDialog = true" 
+                                        color="primary" 
+                                        label="Add Motor" 
+                                        outline 
+                                        size="sm"
+                                    />
+                                </div>
+                            </div>
+
+                            <div class="motor-grid">
+                                <q-card 
+                                    v-for="motor in motors" 
+                                    :key="motor.id" 
+                                    bordered 
+                                    class="motor-card"
+                                    :class="motor.direction ? 'motor-status-active' : 'motor-status-stopped'"
+                                >
+                                    <q-card-section :class="`bg-${motor.color}-1`">
+                                        <div class="row items-center">
+                                            <div class="col">
+                                                <div class="text-subtitle1 text-weight-medium">
+                                                    {{ motor.name }}
+                                                </div>
+                                            </div>
+                                            <div class="col-auto">
+                                                <q-chip 
+                                                    :color="motor.direction ? 'positive' : 'grey'"
+                                                    size="sm"
+                                                >
+                                                    {{ motor.direction || 'Stopped' }}
+                                                </q-chip>
+                                            </div>
+                                        </div>
+                                    </q-card-section>
+
+                                    <q-card-section>
+                                        <!-- PWM Speed Control -->
+                                        <div class="q-mb-lg">
+                                            <div class="text-subtitle2 q-mb-sm">Speed Control</div>
+                                            <div class="pwm-slider-container">
+                                                <q-slider 
+                                                    v-model="motor.pwm" 
+                                                    :min="0" 
+                                                    :max="255" 
+                                                    :step="5" 
+                                                    label 
+                                                    label-always 
+                                                    :color="motor.color" 
+                                                    :track-color="`${motor.color}-2`"
+                                                    @update:model-value="controlMotor(motor.id, motor.direction)"
+                                                    :disable="!connected" 
+                                                />
+                                            </div>
+                                            <div class="text-caption text-center q-mt-sm">
+                                                PWM Value: {{ motor.pwm }} / 255 ({{ Math.round((motor.pwm / 255) * 100) }}%)
+                                            </div>
+                                        </div>
+
+                                        <!-- Direction Controls -->
+                                        <div class="q-mb-md">
+                                            <div class="text-subtitle2 q-mb-sm">Direction Control</div>
+                                            <div class="row q-gutter-sm">
+                                                <div class="col">
+                                                    <div class="direction-button clockwise-button">
+                                                        <q-btn 
+                                                            @click="controlMotor(motor.id, 'clockwise')" 
+                                                            :disable="!connected"
+                                                            :color="motor.direction === 'clockwise' ? 'positive' : motor.color"
+                                                            :outline="motor.direction !== 'clockwise'" 
+                                                            label="CW" 
+                                                            class="full-width" 
+                                                            size="md"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div class="col">
+                                                    <div class="direction-button anticlockwise-button">
+                                                        <q-btn 
+                                                            @click="controlMotor(motor.id, 'anticlockwise')" 
+                                                            :disable="!connected"
+                                                            :color="motor.direction === 'anticlockwise' ? 'positive' : motor.color"
+                                                            :outline="motor.direction !== 'anticlockwise'" 
+                                                            label="CCW" 
+                                                            class="full-width" 
+                                                            size="md"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Stop Button -->
+                                        <div class="stop-button-container">
+                                            <q-btn 
+                                                @click="controlMotor(motor.id, 'stop')" 
+                                                :disable="!connected"
+                                                color="negative" 
+                                                :label="`Stop ${motor.name}`"
+                                                class="full-width" 
+                                                size="md"
+                                            />
+                                        </div>
+
+                                        <!-- Remove Motor Button -->
+                                        <div class="remove-button-container">
+                                            <q-btn 
+                                                @click="removeMotor(motor.id)" 
+                                                color="grey"
+                                                label="Remove"
+                                                outline
+                                                size="sm"
+                                                class="full-width q-mt-sm"
+                                            />
+                                        </div>
+                                    </q-card-section>
+                                </q-card>
+                            </div>
+
+                            <!-- Emergency Stop -->
+                            <div class="emergency-section">
+                                <div class="text-h6 q-mb-md">
+                                    Emergency Controls
+                                </div>
+                                <div class="emergency-stop-button">
+                                    <q-btn 
+                                        @click="emergencyStop" 
+                                        :disable="!connected" 
+                                        size="xl" 
+                                        color="white"
+                                        text-color="red"
+                                        label="EMERGENCY STOP ALL MOTORS" 
+                                        class="text-weight-bold q-pa-lg"
+                                    />
+                                </div>
+                            </div>
+                        </q-card-section>
+                    </q-card>
+
+                    <!-- Communication Section -->
+                    <div class="row q-gutter-lg">
+                        <!-- Send Commands -->
+                        <div class="col-12 col-md-5">
+                            <q-card>
+                                <q-card-section>
+                                    <div class="text-h6 q-mb-md">
+                                        Custom Commands
+                                    </div>
+
+                                    <div class="custom-command-input">
+                                        <q-input 
+                                            v-model="customCommand" 
+                                            outlined 
+                                            label="Enter custom command"
+                                            hint="Send any custom command to the device" 
+                                            :disable="!connected"
+                                            @keyup.enter="sendCustomCommand" 
+                                            class="q-mb-md"
+                                        >
+                                            <template v-slot:append>
+                                                <div class="send-command-button">
+                                                    <q-btn 
+                                                        @click="sendCustomCommand"
+                                                        :disable="!connected || !customCommand.trim()" 
+                                                        round 
+                                                        dense 
+                                                        flat
+                                                        color="primary" 
+                                                    >
+                                                        Send
+                                                    </q-btn>
+                                                </div>
+                                            </template>
+                                        </q-input>
+                                    </div>
+
+                                    <!-- Quick Commands -->
+                                    <div class="text-subtitle2 q-mb-sm">Quick Commands:</div>
+                                    <div class="row q-gutter-xs">
+                                        <div class="quick-command-button" v-for="cmd in quickCommands" :key="cmd.label">
+                                            <q-btn 
+                                                @click="sendCommand(cmd.command)" 
+                                                :disable="!connected" 
+                                                size="sm" 
+                                                outline
+                                                color="primary" 
+                                                :label="cmd.label"
+                                            />
+                                        </div>
+                                    </div>
+                                </q-card-section>
+                            </q-card>
+                        </div>
+
+                        <!-- Communication Log -->
+                        <div class="col-12 col-md-6">
+                            <q-card>
+                                <q-card-section>
+                                    <div class="row items-center q-mb-md">
+                                        <div class="col">
+                                            <div class="text-h6">
+                                                Communication Log
+                                            </div>
+                                        </div>
+                                        <div class="col-auto">
+                                            <div class="clear-log-button">
+                                                <q-btn 
+                                                    @click="clearLog" 
+                                                    color="negative" 
+                                                    outline
+                                                    size="sm"
+                                                    label="Clear"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="communication-scroll-area">
+                                        <q-scroll-area 
+                                            ref="scrollArea" 
+                                            style="height: 400px;"
+                                            class="bg-grey-1 rounded-borders q-pa-md"
+                                        >
+                                            <div v-for="(log, index) in logs" :key="index" class="q-mb-sm">
+                                                <div class="row items-start q-gutter-sm">
+                                                    <div class="log-badge">
+                                                        <q-badge
+                                                            :color="getLogColor(log.type)"
+                                                            class="q-mt-xs"
+                                                        >
+                                                            {{ log.type.toUpperCase() }}
+                                                        </q-badge>
+                                                    </div>
+                                                    <div class="col">
+                                                        <div class="text-caption text-grey-6">{{ log.timestamp }}</div>
+                                                        <div class="text-body2 q-mt-xs">{{ log.message }}</div>
+                                                    </div>
+                                                </div>
+                                                <q-separator v-if="index < logs.length - 1" class="q-my-sm" />
+                                            </div>
+                                            <div v-if="logs.length === 0" class="text-center text-grey-5 q-mt-xl">
+                                                <div class="q-mt-md">No communication yet...</div>
+                                            </div>
+                                        </q-scroll-area>
+                                    </div>
+                                </q-card-section>
+                            </q-card>
+                        </div>
+                    </div>
+
+                    <!-- Add Motor Dialog -->
+                    <q-dialog v-model="showAddMotorDialog">
+                        <q-card style="min-width: 400px">
+                            <q-card-section>
+                                <div class="text-h6">Add New Motor</div>
+                            </q-card-section>
+
+                            <q-card-section class="q-pt-none">
+                                <div class="motor-name-input">
+                                    <q-input
+                                        filled
+                                        v-model="newMotor.name"
+                                        label="Motor Name"
+                                        class="q-mb-md"
+                                    />
+                                </div>
+
+                                <div class="color-select">
+                                    <q-select
+                                        filled
+                                        v-model="newMotor.color"
+                                        :options="colorOptions"
+                                        label="Color Theme"
+                                        class="q-mb-md"
+                                    />
+                                </div>
+
+                                <div class="icon-select">
+                                    <q-select
+                                        filled
+                                        v-model="newMotor.icon"
+                                        :options="iconOptions"
+                                        label="Icon"
+                                    />
+                                </div>
+                            </q-card-section>
+
+                            <q-card-actions align="right">
+                                <div class="dialog-buttons">
+                                    <div class="cancel-button">
+                                        <q-btn flat label="Cancel" color="primary" v-close-popup />
+                                    </div>
+                                    <div class="add-button">
+                                        <q-btn flat label="Add Motor" color="primary" @click="addMotor" v-close-popup />
+                                    </div>
+                                </div>
+                            </q-card-actions>
+                        </q-card>
+                    </q-dialog>
+
+                </q-page>
+            </q-page-container>
+        </q-layout>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/quasar@2.12.0/dist/quasar.umd.prod.js"></script>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    connected: false,
+                    connecting: false,
+                    port: null,
+                    reader: null,
+                    writer: null,
+                    keepReading: false,
+                    inputBuffer: '',
+                    connectionStartTime: null,
+                    connectionTime: '00:00:00',
+                    commandCount: 0,
+
+                    // Generic motor configuration
+                    motors: [
+                        { id: 1, name: 'Motor 1', pwm: 150, direction: null, color: 'blue' },
+                        { id: 2, name: 'Motor 2', pwm: 150, direction: null, color: 'green' },
+                        { id: 3, name: 'Motor 3', pwm: 150, direction: null, color: 'purple' },
+                        { id: 4, name: 'Motor 4', pwm: 150, direction: null, color: 'orange' }
+                    ],
+
+                    customCommand: '',
+                    logs: [],
+                    showAddMotorDialog: false,
+                    newMotor: {
+                        name: '',
+                        color: 'blue'
+                    },
+
+                    colorOptions: ['blue', 'green', 'purple', 'orange', 'red', 'cyan', 'pink', 'indigo', 'teal', 'amber'],
+
+                    quickCommands: [
+                        { label: 'Status', command: 'STATUS' },
+                        { label: 'Reset', command: 'RESET' },
+                        { label: 'Hello', command: 'HELLO' },
+                        { label: 'Version', command: 'VERSION' }
+                    ]
+                }
+            },
+
+            computed: {
+                activeMotorCount() {
+                    return this.motors.filter(motor => motor.direction && motor.direction !== 'stop').length;
+                }
+            },
+
+            mounted() {
+                this.startConnectionTimer();
+            },
+
+            methods: {
+                startConnectionTimer() {
+                    setInterval(() => {
+                        if (this.connected && this.connectionStartTime) {
+                            const now = new Date();
+                            const diff = Math.floor((now - this.connectionStartTime) / 1000);
+                            const hours = Math.floor(diff / 3600).toString().padStart(2, '0');
+                            const minutes = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
+                            const seconds = (diff % 60).toString().padStart(2, '0');
+                            this.connectionTime = `${hours}:${minutes}:${seconds}`;
+                        } else {
+                            this.connectionTime = '00:00:00';
+                        }
+                    }, 1000);
+                },
+
+                async connect() {
+                    if (!("serial" in navigator)) {
+                        this.showNotify('Web Serial1 API not supported. Use Chrome or Edge.', 'negative');
+                        return;
+                    }
+
+                    this.connecting = true;
+
+                    try {
+                        this.port = await navigator.serial.requestPort();
+
+                        await this.port.open({
+                            baudRate: 9600,
+                            dataBits: 8,
+                            stopBits: 1,
+                            parity: 'none'
+                        });
+
+                        this.writer = this.port.writable.getWriter();
+                        this.reader = this.port.readable.getReader();
+                        this.keepReading = true;
+                        this.connected = true;
+                        this.connectionStartTime = new Date();
+
+                        this.showNotify('Connected to HC-05!', 'positive');
+                        this.readLoop();
+                        await this.sendCommand('HELLO');
+
+                    } catch (error) {
+                        this.showNotify(`Connection failed: ${error.message}`, 'negative');
+                        console.error('Connection error:', error);
+                    } finally {
+                        this.connecting = false;
+                    }
+                },
+
+                async disconnect() {
+                    this.keepReading = false;
+
+                    if (this.reader) {
+                        await this.reader.cancel();
+                        await this.reader.releaseLock();
+                    }
+
+                    if (this.writer) {
+                        await this.writer.releaseLock();
+                    }
+
+                    if (this.port) {
+                        await this.port.close();
+                    }
+
+                    this.connected = false;
+                    this.connectionStartTime = null;
+                    
+                    // Reset all motors
+                    this.motors.forEach(motor => {
+                        motor.direction = null;
+                    });
+
+                    this.showNotify('Disconnected', 'info');
+                },
+
+                async controlMotor(motorId, command) {
+                    const motor = this.motors.find(m => m.id === motorId);
+                    if (!motor) return;
+
+                    const cmd = `Motor${motorId}:pwm=${motor.pwm},cmd=${command}`;
+                    await this.sendCommand(cmd);
+
+                    // Update UI state
+                    if (command === 'stop') {
+                        motor.direction = null;
+                    } else {
+                        motor.direction = command;
+                    }
+                },
+
+                async emergencyStop() {
+                    for (const motor of this.motors) {
+                        await this.controlMotor(motor.id, 'stop');
+                    }
+                    this.showNotify('Emergency Stop Activated!', 'negative');
+                },
+
+                addMotor() {
+                    if (!this.newMotor.name.trim()) {
+                        this.showNotify('Please enter a motor name', 'negative');
+                        return;
+                    }
+
+                    const newId = Math.max(...this.motors.map(m => m.id)) + 1;
+                    
+                    this.motors.push({
+                        id: newId,
+                        name: this.newMotor.name,
+                        pwm: 150,
+                        direction: null,
+                        color: this.newMotor.color
+                    });
+
+                    this.showNotify(`${this.newMotor.name} added successfully!`, 'positive');
+                    
+                    // Reset form
+                    this.newMotor = {
+                        name: '',
+                        color: 'blue'
+                    };
+                },
+
+                removeMotor(motorId) {
+                    const motorIndex = this.motors.findIndex(m => m.id === motorId);
+                    if (motorIndex > -1) {
+                        const motorName = this.motors[motorIndex].name;
+                        this.motors.splice(motorIndex, 1);
+                        this.showNotify(`${motorName} removed`, 'info');
+                    }
+                },
+
+                async sendCustomCommand() {
+                    if (this.customCommand.trim()) {
+                        await this.sendCommand(this.customCommand.trim());
+                        this.customCommand = '';
+                    }
+                },
+
+                async sendCommand(command) {
+                    if (this.writer && command) {
+                        try {
+                            const encoder = new TextEncoder();
+                            await this.writer.write(encoder.encode(command + '\n'));
+                            this.addLog(command, 'sent');
+                            this.commandCount++;
+                        } catch (error) {
+                            this.addLog(`Send error: ${error.message}`, 'error');
+                        }
+                    }
+                },
+
+                async readLoop() {
+                    try {
+                        while (this.keepReading && this.reader) {
+                            try {
+                                const { value, done } = await this.reader.read();
+
+                                if (done) {
+                                    console.log('Reader stream done');
+                                    break;
+                                }
+
+                                if (value && value.length > 0) {
+                                    const decoder = new TextDecoder();
+                                    const chunk = decoder.decode(value);
+                                    this.inputBuffer += chunk;
+                                    this.processLines();
+                                }
+
+                            } catch (readError) {
+                                if (readError.name === 'NetworkError' || readError.name === 'InvalidStateError') {
+                                    console.log('Serial1 port disconnected');
+                                    break;
+                                } else {
+                                    this.addLog(`Read error: ${readError.message}`, 'error');
+                                    await new Promise(resolve => setTimeout(resolve, 100));
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('ReadLoop error:', error);
+                        this.addLog(`ReadLoop error: ${error.message}`, 'error');
+                    }
+                },
+
+                processLines() {
+                    const lines = this.inputBuffer.split('\n');
+                    this.inputBuffer = lines.pop() || '';
+
+                    lines.forEach(line => {
+                        const trimmedLine = line.replace(/\r/g, '').trim();
+                        if (trimmedLine) {
+                            this.addLog(trimmedLine, 'received');
+                        }
+                    });
+                },
+
+                addLog(message, type) {
+                    const timestamp = new Date().toLocaleTimeString();
+                    this.logs.push({
+                        message,
+                        type,
+                        timestamp
+                    });
+
+                    if (this.logs.length > 50) {
+                        this.logs.shift();
+                    }
+
+                    this.$nextTick(() => {
+                        if (this.$refs.scrollArea) {
+                            this.$refs.scrollArea.setScrollPosition('vertical', 999999);
+                        }
+                    });
+                },
+
+                clearLog() {
+                    this.logs = [];
+                },
+
+                getLogColor(type) {
+                    const colors = {
+                        'sent': 'blue',
+                        'received': 'green',
+                        'error': 'red'
+                    };
+                    return colors[type] || 'grey';
+                },
+
+                getLogIcon(type) {
+                    const icons = {
+                        'sent': 'send',
+                        'received': 'download',
+                        'error': 'error'
+                    };
+                    return icons[type] || 'info';
+                },
+
+                showNotify(message, color) {
+                    this.$q.notify({
+                        message,
+                        color,
+                        position: 'top',
+                        timeout: 3000,
+                        icon: color === 'positive' ? 'check_circle' : color === 'negative' ? 'error' : 'info'
+                    });
+                }
+            },
+
+            beforeUnmount() {
+                if (this.connected) {
+                    this.disconnect();
+                }
+            }
+        }).use(Quasar, {
+            plugins: {
+                Notify: Quasar.Notify
+            }
+        }).mount('#app');
+    </script>
+</body>
+
+</html>
