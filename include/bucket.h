@@ -6,41 +6,31 @@
 #include "gyro.h"
 #include "timing.h"
 
-
-
-
 namespace BucketControl
 {
-    String command = "";    // holds the incoming command
-    void motor1Ctrl();      //
-    void motor2Ctrl();      //
-    void motor3Ctrl();      //
-    void motor4Ctrl();      //
-    void stopAllMotors();   //
-    void monitorSwitches(); //
-    void logSwitchStates(); //
-    void bucketTip();       //
-    void bucketRaise();     //
+    String command = "";            // holds the incoming command
+    void motor1Ctrl();              //
+    void motor2Ctrl();              //
+    void motor3Ctrl();              //
+    void motor4Ctrl();              //
+    void stopAllMotors();           //
+    void monitorSwitches();         //
+    void logSwitchStates();         //
     void bucketLowerWithLeveling(); //
+    void bucketRaiseWithLeveling(); //
+    void bucketTip();               //
     //
     uint8_t top_limit_sw_1_val, top_limit_sw_2_val, top_limit_sw_3_val, top_limit_sw_4_val;
     uint8_t bottom_limit_sw_1_val, bottom_limit_sw_2_val, bottom_limit_sw_3_val, bottom_limit_sw_4_val;
     //
-    // Bucket tipping state machine
-    enum BucketState {
-        IDLE,
-        LOWERING,
-        TIPPING,
-        HOLDING,
-        RAISING
-    };
-    BucketState bucket_state = IDLE;
+    // Command-based control flags
+    bool bucket_lowering = false;
+    bool bucket_raising = false;
+    bool bucket_tipping = false;
+    int bucket_base_speed = 200;
     unsigned long hold_start_time = 0;
     const unsigned long HOLD_DURATION = 3000; // 3 seconds
-    const int TIPPING_SPEED = 200;
-    const int RAISING_SPEED = 200;
-    const int LOWERING_SPEED = 200;
-    int bucket_base_speed = 200;
+    const int TIPPING_SPEED = 180;
 
     void init()
     {
@@ -117,82 +107,54 @@ namespace BucketControl
 
             if (cmd == "down")
             {
-                // Manual lower with auto-leveling
                 debugln("Bucket: Lowering with auto-leveling");
-                bucket_state = LOWERING;
+                bucket_lowering = true;
+                bucket_raising = false;
+                bucket_tipping = false;
                 bucket_base_speed = speed;
                 command = "";
             }
             else if (cmd == "up")
             {
-                // Manual raise - all motors move up
-                debugln("Bucket: Raising");
-                motor1.cmd = "clockwise";
-                motor1.speed = speed;
-                motor2.cmd = "clockwise";
-                motor2.speed = speed;
-                motor3.cmd = "clockwise";
-                motor3.speed = speed;
-                motor4.cmd = "clockwise";
-                motor4.speed = speed;
-                motor_1_running = true;
-                motor_2_running = true;
-                motor_3_running = true;
-                motor_4_running = true;
+                debugln("Bucket: Raising with auto-leveling");
+                bucket_raising = true;
+                bucket_lowering = false;
+                bucket_tipping = false;
+                bucket_base_speed = speed;
                 command = "";
             }
             else if (cmd == "tip")
             {
-                // Manual trigger tipping sequence
-                if (bucket_state == IDLE)
-                {
-                    debugln("Bucket: Manual tip sequence triggered");
-                    bucket_state = TIPPING;
-                }
-                else
-                {
-                    debug("Bucket: Cannot tip - currently in state ");
-                    debugln(bucket_state);
-                }
+                debugln("Bucket: Starting tip sequence");
+                bucket_tipping = true;
+                bucket_lowering = false;
+                bucket_raising = false;
+                hold_start_time = 0; // Reset hold timer
                 command = "";
             }
             else if (cmd == "stop")
             {
-                // Stop all motors and reset state
                 debugln("Bucket: Stopping all operations");
-                bucket_state = IDLE;
+                bucket_lowering = false;
+                bucket_raising = false;
+                bucket_tipping = false;
                 stopAllMotors();
                 command = "";
             }
         }
 
-        // Bucket tipping state machine
-        switch (bucket_state)
+        // Execute active operation based on flags
+        if (bucket_lowering)
         {
-            case IDLE:
-                // Normal operation - check for bottom limit trigger
-                break;
-
-            case LOWERING:
-                bucketLowerWithLeveling();
-                break;
-
-            case TIPPING:
-                bucketTip();
-                break;
-
-            case HOLDING:
-                // Check if hold time elapsed
-                if (millis() - hold_start_time >= HOLD_DURATION)
-                {
-                    bucket_state = RAISING;
-                    debugln("Hold complete, starting raise");
-                }
-                break;
-
-            case RAISING:
-                bucketRaise();
-                break;
+            bucketLowerWithLeveling();
+        }
+        else if (bucket_raising)
+        {
+            bucketRaiseWithLeveling();
+        }
+        else if (bucket_tipping)
+        {
+            bucketTip();
         }
 
         // monitor limit switches
@@ -295,7 +257,7 @@ namespace BucketControl
             analogWrite(MOTOR_3_PWM_2, 0);
         }
     }
-    //  motor4 control
+    // motor4 control
     // Motor4: cmd=clockwise,pwm=250
     // Motor4: cmd=anticlockwise,pwm=252
     // Motor4: cmd=stop
@@ -361,66 +323,79 @@ namespace BucketControl
     // Bucket tipping function - tip backward by raising motors 1&2
     void bucketTip()
     {
-        // Motors 1&2 move up (clockwise) to raise front and tip backward
-        motor1.cmd = "clockwise";
-        motor1.speed = TIPPING_SPEED;
-        motor2.cmd = "clockwise";
-        motor2.speed = TIPPING_SPEED;
-
-        // Motors 3&4 stop and hold position at bottom (act as pivot point)
-        motor3.cmd = "stop";
-        motor4.cmd = "stop";
-
-        // Execute motor control
-        motor1Ctrl();
-        motor2Ctrl();
-        motor3Ctrl();
-        motor4Ctrl();
-
-        // Check if tipped to approximately 80 degrees using gyro
-        float pitch = Gyro::getPitch();
-
-        // When pitch reaches ~-80° (front is up, back is down), transition to HOLDING
-        // Negative pitch means back is tilted down (tipping backward to pour)
-        if (pitch <= -75.0)  // Using -75° threshold to account for sensor accuracy
+        // If hold timer not started yet, we're still tipping
+        if (hold_start_time == 0)
         {
-            // Stop motors 1&2
-            motor1.cmd = "stop";
-            motor2.cmd = "stop";
+            // Motors 1&2 move up (clockwise) to raise front and tip backward
+            motor1.cmd = "clockwise";
+            motor1.speed = TIPPING_SPEED;
+            motor2.cmd = "clockwise";
+            motor2.speed = TIPPING_SPEED;
+
+            // Motors 3&4 stop and hold position at bottom (act as pivot point)
+            motor3.cmd = "stop";
+            motor4.cmd = "stop";
+
+            // Execute motor control
             motor1Ctrl();
             motor2Ctrl();
+            motor3Ctrl();
+            motor4Ctrl();
 
-            bucket_state = HOLDING;
-            hold_start_time = millis();
-            debug("Bucket tipped backward to ");
-            debug(pitch);
-            debugln(" degrees, holding for 3 seconds");
+            // Check if tipped to approximately 80 degrees using gyro
+            float pitch = Gyro::getPitch();
+
+            // When pitch reaches ~-80° (front is up, back is down), start holding
+            // Negative pitch means back is tilted down (tipping backward to pour)
+            if (pitch <= -75.0) // Using -75° threshold to account for sensor accuracy
+            {
+                // Stop motors 1&2
+                motor1.cmd = "stop";
+                motor2.cmd = "stop";
+                motor1Ctrl();
+                motor2Ctrl();
+
+                hold_start_time = millis();
+                debug("Bucket tipped backward to ");
+                debug(pitch);
+                debugln(" degrees, holding for 3 seconds");
+            }
+        }
+        else
+        {
+            // We're in holding phase - check if hold time elapsed
+            if (millis() - hold_start_time >= HOLD_DURATION)
+            {
+                debugln("Hold complete, tip sequence finished");
+                bucket_tipping = false;
+                hold_start_time = 0;
+            }
         }
     }
 
-    // Bucket raise function - raise bucket with auto-leveling
-    void bucketRaise()
+    // Bucket raise with auto-leveling function
+    void bucketRaiseWithLeveling()
     {
         // Get current tilt angles from gyro
         float pitch = Gyro::getPitch();
         float roll = Gyro::getRoll();
 
         // Calculate speed compensation for leveling
-        int motor1_speed = RAISING_SPEED;
-        int motor2_speed = RAISING_SPEED;
-        int motor3_speed = RAISING_SPEED;
-        int motor4_speed = RAISING_SPEED;
+        int motor1_speed = bucket_base_speed;
+        int motor2_speed = bucket_base_speed;
+        int motor3_speed = bucket_base_speed;
+        int motor4_speed = bucket_base_speed;
 
         // Pitch compensation (same logic as platform auto-leveling)
         if (pitch > 5.0)
         {
-            motor1_speed = RAISING_SPEED * 0.7;
-            motor2_speed = RAISING_SPEED * 0.7;
+            motor1_speed = bucket_base_speed * 0.7;
+            motor2_speed = bucket_base_speed * 0.7;
         }
         else if (pitch < -5.0)
         {
-            motor3_speed = RAISING_SPEED * 0.7;
-            motor4_speed = RAISING_SPEED * 0.7;
+            motor3_speed = bucket_base_speed * 0.7;
+            motor4_speed = bucket_base_speed * 0.7;
         }
 
         // Roll compensation
@@ -473,13 +448,109 @@ namespace BucketControl
             debugln("Motor 4 top limit reached");
         }
 
-        // If all motors reached top, return to IDLE state
+        // If all motors reached top, stop raising
         if (!top_limit_sw_1_val && !top_limit_sw_2_val &&
             !top_limit_sw_3_val && !top_limit_sw_4_val)
         {
-            bucket_state = IDLE;
+            bucket_raising = false;
             stopAllMotors();
-            debugln("Bucket fully raised - returning to IDLE");
+            debugln("Bucket fully raised");
+            return;
+        }
+
+        // Execute motor control
+        motor1Ctrl();
+        motor2Ctrl();
+        motor3Ctrl();
+        motor4Ctrl();
+    }
+
+    // Bucket lower with auto-leveling function
+    void bucketLowerWithLeveling()
+    {
+        // Get current tilt angles from gyro
+        float pitch = Gyro::getPitch();
+        float roll = Gyro::getRoll();
+
+        // Calculate speed compensation for leveling
+        int motor1_speed = bucket_base_speed;
+        int motor2_speed = bucket_base_speed;
+        int motor3_speed = bucket_base_speed;
+        int motor4_speed = bucket_base_speed;
+
+        // Pitch compensation (same logic as platform auto-leveling)
+        if (pitch > 5.0)
+        {
+            // Front is lower, slow down front motors
+            motor1_speed = bucket_base_speed * 0.7;
+            motor2_speed = bucket_base_speed * 0.7;
+        }
+        else if (pitch < -5.0)
+        {
+            // Back is lower, slow down back motors
+            motor3_speed = bucket_base_speed * 0.7;
+            motor4_speed = bucket_base_speed * 0.7;
+        }
+
+        // Roll compensation
+        if (roll > 5.0)
+        {
+            // Right is lower, slow down right motors
+            motor2_speed = motor2_speed * 0.7;
+            motor4_speed = motor4_speed * 0.7;
+        }
+        else if (roll < -5.0)
+        {
+            // Left is lower, slow down left motors
+            motor1_speed = motor1_speed * 0.7;
+            motor3_speed = motor3_speed * 0.7;
+        }
+
+        // Clamp speeds to safe range
+        motor1_speed = constrain(motor1_speed, 60, 253);
+        motor2_speed = constrain(motor2_speed, 60, 253);
+        motor3_speed = constrain(motor3_speed, 60, 253);
+        motor4_speed = constrain(motor4_speed, 60, 253);
+
+        // Set all motors to move down (anticlockwise)
+        motor1.cmd = "anticlockwise";
+        motor1.speed = motor1_speed;
+        motor2.cmd = "anticlockwise";
+        motor2.speed = motor2_speed;
+        motor3.cmd = "anticlockwise";
+        motor3.speed = motor3_speed;
+        motor4.cmd = "anticlockwise";
+        motor4.speed = motor4_speed;
+
+        // Check individual bottom limit switches and stop respective motors
+        if (!bottom_limit_sw_1_val)
+        {
+            motor1.cmd = "stop";
+            debugln("Motor 1 bottom limit reached");
+        }
+        if (!bottom_limit_sw_2_val)
+        {
+            motor2.cmd = "stop";
+            debugln("Motor 2 bottom limit reached");
+        }
+        if (!bottom_limit_sw_3_val)
+        {
+            motor3.cmd = "stop";
+            debugln("Motor 3 bottom limit reached");
+        }
+        if (!bottom_limit_sw_4_val)
+        {
+            motor4.cmd = "stop";
+            debugln("Motor 4 bottom limit reached");
+        }
+
+        // If all motors reached bottom, stop lowering
+        if (!bottom_limit_sw_1_val && !bottom_limit_sw_2_val &&
+            !bottom_limit_sw_3_val && !bottom_limit_sw_4_val)
+        {
+            debugln("All motors reached bottom - lowering complete");
+            bucket_lowering = false;
+            stopAllMotors();
             return;
         }
 
@@ -501,34 +572,6 @@ namespace BucketControl
         bottom_limit_sw_2_val = digitalRead(BOTTOM_LIMIT_SW_2);
         bottom_limit_sw_3_val = digitalRead(BOTTOM_LIMIT_SW_3);
         bottom_limit_sw_4_val = digitalRead(BOTTOM_LIMIT_SW_4);
-
-        // If in RAISING state, let bucketRaise() handle per-motor stops
-        if (bucket_state == RAISING)
-        {
-            return;
-        }
-
-        // If IDLE state, check for bottom limit trigger to start tipping
-        if (bucket_state == IDLE)
-        {
-            if (!bottom_limit_sw_1_val || !bottom_limit_sw_2_val ||
-                !bottom_limit_sw_3_val || !bottom_limit_sw_4_val)
-            {
-                debugln("Bottom limit triggered - starting bucket tip sequence");
-                bucket_state = TIPPING;
-                return;
-            }
-        }
-
-        // For IDLE and manual control: global limit switch safety
-        if (bucket_state == IDLE)
-        {
-            // stop all motors from moving up
-            if (!top_limit_sw_1_val || !top_limit_sw_2_val || !top_limit_sw_3_val || !top_limit_sw_4_val)
-            {
-                stopAllMotors();
-            }
-        }
     }
     //
     void logSwitchStates()

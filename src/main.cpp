@@ -7,8 +7,8 @@
 
 // Create custom timers if needed
 SmartDelay updateLevel(1000); // 100ms custom timer
-// uint8_t algo_type = BUCKET_CONTROL;   //  Bucket control
-uint8_t algo_type = PLATFORM_CONTROL; // Platform control
+uint8_t algo_type = BUCKET_CONTROL;   //  Bucket control
+// uint8_t algo_type = PLATFORM_CONTROL; // Platform control
 void setup()
 {
   Serial.begin(9600);
