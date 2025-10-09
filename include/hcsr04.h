@@ -34,9 +34,9 @@ namespace Hcsr04
         distance_cm = duration * 0.0343 / 2;
 
         // Print result
-        debug("Distance: ");
-        debug(distance_cm);
-        debugln(" cm");
+        // debug("Distance: ");
+        // debug(distance_cm);
+        // debugln(" cm");
     }
 }
 

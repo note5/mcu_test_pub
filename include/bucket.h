@@ -8,7 +8,7 @@
 
 namespace BucketControl
 {
-    String command = "";            // holds the incoming command
+   String command = "";            // holds the incoming command
     void motor1Ctrl();              //
     void motor2Ctrl();              //
     void motor3Ctrl();              //
@@ -24,7 +24,8 @@ namespace BucketControl
     uint8_t bottom_limit_sw_1_val, bottom_limit_sw_2_val, bottom_limit_sw_3_val, bottom_limit_sw_4_val;
     //
     // Command-based control with single state variable
-    enum BucketOperation {
+    enum BucketOperation
+    {
         NONE,
         LOWERING,
         RAISING,
@@ -98,8 +99,8 @@ namespace BucketControl
         }
 
         // Bucket serial command handler
-        // Bucket: cmd=down,pwm=200
-        // Bucket: cmd=up,pwm=200
+        // Bucket: cmd=down,pwm=150
+        // Bucket: cmd=up,pwm=150
         // Bucket: cmd=tip
         // Bucket: cmd=stop
         if (command.indexOf("Bucket:") != -1)
@@ -142,21 +143,22 @@ namespace BucketControl
         // Execute active operation
         switch (current_operation)
         {
-            case LOWERING:
-                bucketLowerWithLeveling();
-                break;
-            case RAISING:
-                bucketRaiseWithLeveling();
-                break;
-            case TIPPING:
-                bucketTip();
-                break;
-            case NONE:
-                break;
+        case LOWERING:
+            bucketLowerWithLeveling();
+            break;
+        case RAISING:
+            bucketRaiseWithLeveling();
+            break;
+        case TIPPING:
+            bucketTip();
+            break;
+        case NONE:
+            break;
         }
 
         // monitor limit switches
         monitorSwitches();
+      
         if (updateSwitchesLogging.isReady())
         {
             logSwitchStates();
@@ -575,27 +577,28 @@ namespace BucketControl
         //     {
         //         stopAllMotors();
         //     }
-        }
-        //
-        void logSwitchStates()
-        {
-            debug("top 1:");
-            debug(top_limit_sw_1_val);
-            debug(" top 2:");
-            debug(top_limit_sw_2_val);
-            debug(" top 3:");
-            debug(top_limit_sw_3_val);
-            debug(" top 4:");
-            debugln(top_limit_sw_4_val);
-            debug(" bottom 1:");
-            debug(bottom_limit_sw_1_val);
-            debug(" bottom 2:");
-            debug(bottom_limit_sw_2_val);
-            debug(" bottom 3:");
-            debug(bottom_limit_sw_3_val);
-            debug(" bottom 4:");
-            debugln(bottom_limit_sw_4_val);
-        }
     }
+  
+    //
+    void logSwitchStates()
+    {
+        debug("top 1:");
+        debug(top_limit_sw_1_val);
+        debug(" top 2:");
+        debug(top_limit_sw_2_val);
+        debug(" top 3:");
+        debug(top_limit_sw_3_val);
+        debug(" top 4:");
+        debugln(top_limit_sw_4_val);
+        debug(" bottom 1:");
+        debug(bottom_limit_sw_1_val);
+        debug(" bottom 2:");
+        debug(bottom_limit_sw_2_val);
+        debug(" bottom 3:");
+        debug(bottom_limit_sw_3_val);
+        debug(" bottom 4:");
+        debugln(bottom_limit_sw_4_val);
+    }
+}
 
 #endif

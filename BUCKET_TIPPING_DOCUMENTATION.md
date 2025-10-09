@@ -1,7 +1,7 @@
 # Bucket Tipping System Documentation
 
 ## Overview
-This document describes the automatic bucket tipping system for a bucket suspended by 4 pulleys, each controlled by an independent motor at each corner. The system automatically tips the bucket **backward** to approximately 80 degrees when it reaches the bottom position (above a bin), holds for 3 seconds to empty contents into the bin below, then raises it back up with auto-leveling control. The bucket lowers to varying heights as the bin fills up, with the bottom limit switches triggering the tipping sequence at the current position.
+This document describes the command-based bucket tipping system for a bucket suspended by 4 pulleys, each controlled by an independent motor at each corner. The system tips the bucket **backward** to approximately 55 degrees when commanded, holds for 3 seconds to empty contents into the bin below, then can be raised back up with auto-leveling control. All operations are triggered by serial commands (down, up, tip, stop).
 
 ---
 
@@ -37,9 +37,9 @@ LEFT              RIGHT
 ### Gyroscope Orientation
 - **Pitch**: Forward (+) / Backward (-) tilt
   - **Negative pitch** → Back tilted down (bucket tipping backward to pour)
-  - Target: **-75 to -80°** for full tipping
+  - Target: **-55°** for full tipping
 - **Roll**: Right (+) / Left (-) tilt
-  - Used during raising phase for auto-leveling
+  - Used during raising/lowering for auto-leveling (±5° threshold)
 
 ---
 
@@ -48,13 +48,13 @@ LEFT              RIGHT
 ### Modified File
 **[include/bucket.h](include/bucket.h)**
 - Lines 6-7: Added `#include "gyro.h"` and `#include "timing.h"`
-- Lines 22-23: Added function declarations (`bucketTip()`, `bucketRaise()`)
-- Lines 28-39: Added state machine variables and constants
-- Lines 102-173: Added Bucket serial command handler (down, up, tip, stop)
-- Lines 175-198: Added state machine logic in `forever()` loop
-- Lines 290-328: Implemented `bucketTip()` function (backward tipping)
-- Lines 330-419: Implemented `bucketRaise()` function with auto-leveling
-- Lines 422-460: Updated `monitorSwitches()` for state-based control
+- Lines 22-24: Added function declarations (`bucketTip()`, `bucketRaiseWithLeveling()`, `bucketLowerWithLeveling()`)
+- Lines 27-37: Command-based control with BucketOperation enum (NONE, LOWERING, RAISING, TIPPING)
+- Lines 104-140: Bucket serial command handler (down, up, tip, stop)
+- Lines 142-156: Operation execution switch statement in `forever()` loop
+- Lines 326-372: Implemented `bucketTip()` function (backward tipping to -55°, holds 3s)
+- Lines 374-469: Implemented `bucketRaiseWithLeveling()` function with auto-leveling (±5° threshold)
+- Lines 471-565: Implemented `bucketLowerWithLeveling()` function with auto-leveling (±5° threshold)
 
 ---
 
@@ -68,66 +68,72 @@ Bucket: cmd=<command>,pwm=<speed>
 
 ### Available Commands
 
-#### 1. Lower Bucket (Manual Down)
+#### 1. Lower Bucket with Auto-Leveling
 ```
 Bucket: cmd=down,pwm=200
 ```
-- **Function**: Manually lower bucket at specified speed
-- **Motors**: All 4 motors move down (anticlockwise) at same speed
-- **PWM Range**: 123-253 (automatically clamped)
+- **Function**: Lower bucket with auto-leveling
+- **Motors**: All 4 motors move down (anticlockwise) with speed compensation based on tilt
+- **Auto-leveling**: ±5° threshold for pitch and roll, 0.7× speed reduction for lower corners
+- **PWM Range**: 123-253 input (automatically clamped), 60-253 output after compensation
 - **Default PWM**: 200 if not specified
-- **State**: Requires IDLE state
-- **Use Case**: Position bucket above bin before automatic tipping
+- **Operation**: Sets current_operation = LOWERING
+- **Use Case**: Lower bucket while maintaining level position
 
 **Example**:
 ```
-Bucket: cmd=down,pwm=180    // Lower at 180 PWM
-Bucket: cmd=down            // Lower at default 200 PWM
+Bucket: cmd=down,pwm=180    // Lower at base 180 PWM with auto-leveling
+Bucket: cmd=down            // Lower at default 200 PWM with auto-leveling
 ```
 
-#### 2. Raise Bucket (Manual Up)
+#### 2. Raise Bucket with Auto-Leveling
 ```
 Bucket: cmd=up,pwm=200
 ```
-- **Function**: Manually raise bucket at specified speed
-- **Motors**: All 4 motors move up (clockwise) at same speed
-- **PWM Range**: 123-253 (automatically clamped)
+- **Function**: Raise bucket with auto-leveling
+- **Motors**: All 4 motors move up (clockwise) with speed compensation based on tilt
+- **Auto-leveling**: ±5° threshold for pitch and roll, 0.7× speed reduction for lower corners
+- **PWM Range**: 123-253 input (automatically clamped), 60-253 output after compensation
 - **Default PWM**: 200 if not specified
-- **State**: Can interrupt any state (sets state to IDLE)
-- **Use Case**: Return bucket to top position manually
+- **Operation**: Sets current_operation = RAISING
+- **Use Case**: Return bucket to top position while maintaining level
 
 **Example**:
 ```
-Bucket: cmd=up,pwm=220      // Raise at 220 PWM
-Bucket: cmd=up              // Raise at default 200 PWM
+Bucket: cmd=up,pwm=220      // Raise at base 220 PWM with auto-leveling
+Bucket: cmd=up              // Raise at default 200 PWM with auto-leveling
 ```
 
-#### 3. Manual Tip Trigger
+#### 3. Tip Bucket
 ```
 Bucket: cmd=tip
 ```
-- **Function**: Manually trigger tipping sequence without limit switch
-- **State Requirement**: Must be in IDLE state
-- **Sequence**: IDLE → TIPPING → HOLDING → RAISING → IDLE
-- **Safety**: Will not tip if already in TIPPING, HOLDING, or RAISING state
-- **Use Case**: Test tipping sequence or manually trigger when needed
+- **Function**: Tip bucket backward to pour contents
+- **Motors**:
+  - Motors 1&2: Move up (clockwise) at 180 PWM to raise front
+  - Motors 3&4: Hold position at bottom (act as pivot)
+- **Target Angle**: -55° pitch (backward tilt)
+- **Hold Time**: 3 seconds after reaching target angle
+- **Operation**: Sets current_operation = TIPPING
+- **Completion**: Automatically sets current_operation = NONE after hold completes
+- **Use Case**: Pour bucket contents into bin
 
 **Example**:
 ```
-Bucket: cmd=tip             // Start tipping sequence immediately
+Bucket: cmd=tip             // Start tipping sequence
 
-Response:
-- If IDLE: "Bucket: Manual tip sequence triggered"
-- If busy: "Bucket: Cannot tip - currently in state <N>"
+Response: "Bucket: Starting tip sequence"
+After reaching -55°: "Bucket tipped backward to -55.xx degrees, holding for 3 seconds"
+After 3s hold: "Hold complete, tip sequence finished"
 ```
 
 #### 4. Emergency Stop
 ```
 Bucket: cmd=stop
 ```
-- **Function**: Stop all motors immediately and reset to IDLE state
+- **Function**: Stop all motors immediately and reset to idle
 - **Motors**: All 4 motors stop
-- **State**: Resets bucket_state to IDLE
+- **Operation**: Sets current_operation = NONE
 - **Flags**: Clears all motor_running flags
 - **Use Case**: Emergency stop or cancel ongoing operations
 
@@ -140,62 +146,69 @@ Response: "Bucket: Stopping all operations"
 
 ### Command Summary Table
 
-| Command | Syntax | PWM | State Required | Action | Motors |
-|---------|--------|-----|----------------|--------|--------|
-| **down** | `Bucket: cmd=down,pwm=200` | 123-253 | IDLE | Manual lower | All down (anticlockwise) |
-| **up** | `Bucket: cmd=up,pwm=200` | 123-253 | Any | Manual raise | All up (clockwise) |
-| **tip** | `Bucket: cmd=tip` | N/A | IDLE | Start tipping sequence | State machine controlled |
-| **stop** | `Bucket: cmd=stop` | N/A | Any | Emergency stop | All stop |
+| Command | Syntax | PWM | Operation Set | Action | Auto-Leveling |
+|---------|--------|-----|---------------|--------|---------------|
+| **down** | `Bucket: cmd=down,pwm=200` | 123-253 | LOWERING | Lower with auto-leveling | Yes (±5°) |
+| **up** | `Bucket: cmd=up,pwm=200` | 123-253 | RAISING | Raise with auto-leveling | Yes (±5°) |
+| **tip** | `Bucket: cmd=tip` | 180 (fixed) | TIPPING | Tip to -55°, hold 3s | No |
+| **stop** | `Bucket: cmd=stop` | N/A | NONE | Emergency stop | N/A |
 
 ---
 
-## Bucket Tipping Algorithm
+## Bucket Control Algorithm
 
-### State Machine Overview
+### Command-Based Operation
 
+The bucket system uses a simple command-based control with a single state variable:
+
+```cpp
+enum BucketOperation {
+    NONE,      // Idle - no operation active
+    LOWERING,  // Lowering with auto-leveling
+    RAISING,   // Raising with auto-leveling
+    TIPPING    // Tipping backward to pour
+};
 ```
-┌──────┐  Bottom Limit    ┌─────────┐  Pitch ≥ 75°   ┌─────────┐  3 sec elapsed   ┌─────────┐
-│ IDLE │─────Triggered────>│ TIPPING │───────────────>│ HOLDING │──────────────────>│ RAISING │
-└──────┘                   └─────────┘                └─────────┘                   └─────────┘
-    ^                                                                                      │
-    │                                                                                      │
-    └──────────────────────────────────All Top Limits Reached─────────────────────────────┘
-```
 
-### State Descriptions
+All operations are triggered by serial commands (`Bucket: cmd=...`). No automatic state transitions occur.
 
-#### IDLE State
-- **Purpose**: Normal operation, monitors for trigger condition
-- **Motor Control**: Manual control via serial commands (Motor1-4: cmd=...)
-- **Trigger**: ANY bottom limit switch goes LOW (pressed)
-- **Action**: Transition to TIPPING state
-- **Safety**: Global top limit switch stops all motors
+### Operation Descriptions
 
-#### TIPPING State
-- **Purpose**: Tip bucket forward to approximately 80 degrees
+#### NONE (Idle)
+- **Purpose**: No active operation
+- **Motor Control**: Motors stopped
+- **Trigger**: Any command can start a new operation
+- **Entry**: System startup, after stop command, or after operation completes
+
+#### LOWERING Operation
+- **Purpose**: Lower bucket with auto-leveling
 - **Motor Control**:
-  - Motors 1&2: Move down (anticlockwise) at TIPPING_SPEED (200 PWM)
-  - Motors 3&4: Stop and hold position (act as pivot point)
-- **Exit Condition**: Gyro pitch angle ≥ 75°
-- **Action**: Stop motors 1&2, transition to HOLDING state
-- **Duration**: Variable (depends on load, motor speed, mechanical resistance)
+  - All 4 motors move down (anticlockwise)
+  - Speed compensated based on pitch/roll (±5° threshold, 0.7× for lower corners)
+  - Individual bottom limit switches stop respective motors
+- **Exit Condition**: All 4 bottom limit switches triggered OR stop command
+- **Action**: Sets current_operation = NONE when complete
+- **Duration**: Variable (depends on height, tilt, leveling adjustments)
 
-#### HOLDING State
-- **Purpose**: Hold tipped position for 3 seconds to empty contents
-- **Motor Control**: All motors stopped
-- **Exit Condition**: 3000 milliseconds elapsed
-- **Action**: Transition to RAISING state
-- **Duration**: Fixed 3 seconds
-
-#### RAISING State
-- **Purpose**: Raise bucket back to level position with auto-leveling
+#### RAISING Operation
+- **Purpose**: Raise bucket with auto-leveling
 - **Motor Control**:
-  - All 4 motors move up (clockwise) with speed compensation
-  - Auto-leveling adjusts individual motor speeds based on tilt
-  - Per-motor top limit switch handling
-- **Exit Condition**: All 4 top limit switches triggered
-- **Action**: Stop all motors, transition to IDLE state
-- **Duration**: Variable (depends on tilt, leveling adjustments)
+  - All 4 motors move up (clockwise)
+  - Speed compensated based on pitch/roll (±5° threshold, 0.7× for lower corners)
+  - Individual top limit switches stop respective motors
+- **Exit Condition**: All 4 top limit switches triggered OR stop command
+- **Action**: Sets current_operation = NONE when complete
+- **Duration**: Variable (depends on height, tilt, leveling adjustments)
+
+#### TIPPING Operation
+- **Purpose**: Tip bucket backward to pour contents, hold, then stop
+- **Motor Control**:
+  - **Phase 1 (Tipping)**: Motors 1&2 up (clockwise) at 180 PWM, Motors 3&4 hold (pivot)
+  - **Phase 2 (Holding)**: All motors stopped for 3 seconds
+- **Exit Condition**: Pitch ≤ -55° triggers hold timer, then 3 seconds hold completes
+- **Action**: Sets current_operation = NONE after hold completes
+- **Duration**: Variable tipping time + 3 second fixed hold time
+- **Note**: Does NOT automatically raise bucket after tipping - use `cmd=up` to raise
 
 ---
 

@@ -24,10 +24,10 @@
 #define MOTOR_4_PWM_1 8 //
 #define MOTOR_4_PWM_2 9 //
 // Define limit switch input pins
-#define TOP_LIMIT_SW_1 30    //
-#define TOP_LIMIT_SW_2 31    //
-#define TOP_LIMIT_SW_3 32    //
-#define TOP_LIMIT_SW_4 33    //
+#define TOP_LIMIT_SW_2 30    //
+#define TOP_LIMIT_SW_1 31    //
+#define TOP_LIMIT_SW_4 32    //
+#define TOP_LIMIT_SW_3 33    //
 #define BOTTOM_LIMIT_SW_1 34 //
 #define BOTTOM_LIMIT_SW_2 35 //
 #define BOTTOM_LIMIT_SW_3 36 //

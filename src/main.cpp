@@ -7,8 +7,8 @@
 
 // Create custom timers if needed
 SmartDelay updateLevel(1000);       // 100ms custom timer
-uint8_t algo_type = BUCKET_CONTROL; //  Bucket control
-// uint8_t algo_type = PLATFORM_CONTROL; // Platform control
+// uint8_t algo_type = BUCKET_CONTROL; //  Bucket control
+uint8_t algo_type = PLATFORM_CONTROL; // Platform control
 void setup()
 {
   Serial.begin(9600);
@@ -34,11 +34,13 @@ void setup()
 
 void loop()
 {
+    Hcsr04::measure();
   // Non-blocking orientation updates using pre-defined timer
   if (Timing::shouldUpdateOrientation())
   {
     // Update sensor data
     Gyro::update();
+  
   }
   //
   if (algo_type == BUCKET_CONTROL)
@@ -54,9 +56,9 @@ void loop()
   {
     float pitch = Gyro::getPitch();
     float roll = Gyro::getRoll();
-    debug("Pitch: ");
-    debug(pitch);
-    debug(" Roll: ");
-    debugln(roll);
+    // debug("Pitch: ");
+    // debug(pitch);
+    // debug(" Roll: ");
+    // debugln(roll);
   }
 }

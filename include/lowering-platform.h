@@ -4,9 +4,24 @@
 #include "common.h"
 #include "actuators-and-sensors.h"
 #include "gyro.h"
+#include "hcsr04.h"
 
 namespace PlatformControl
 {
+    float last_ullage_cm = 0.0;       // Previous ullage reading for tracking rate of change
+    float ullage_threshold_cm = 15.0; // Minimum clearance to maintain above material (cm)
+    float valid_ullage_min = 2.0;     // Minimum valid sensor reading (cm) - ignore below this
+    float valid_ullage_max = 200.0;   // Maximum valid sensor reading (cm) - ignore above this
+
+    // Enhanced state machine for automatic filling operation
+    enum PlatformOperation
+    {
+        TOP,      // All top limit switches active, waiting to start
+        LOWERING, // Auto-leveling descent tracking material level
+        BOTTOM,   // All bottom limit switches active, fully lowered
+        RAISING   // Moving up to top
+    };
+    PlatformOperation current_operation = TOP;
     String command = "";      // holds the incoming command
     void motor1Ctrl();        //
     void motor2Ctrl();        //
@@ -17,12 +32,11 @@ namespace PlatformControl
     void logSwitchStates();   //
     void platformAutoLevel(); //
     void platformMoveUp();    //
-    //
+    void checkUllageAndAutoStart(); //
+    // holds the state of the limit switches
     uint8_t top_limit_sw_1_val, top_limit_sw_2_val, top_limit_sw_3_val, top_limit_sw_4_val;
     uint8_t bottom_limit_sw_1_val, bottom_limit_sw_2_val, bottom_limit_sw_3_val, bottom_limit_sw_4_val;
-    //
-    bool platform_auto_leveling = false;
-    bool platform_moving_up = false;
+    // set the base speed of the motors
     int platform_base_speed = 254;
 
     void init()
@@ -34,6 +48,9 @@ namespace PlatformControl
     //
     void forever()
     {
+        // Check ullage and auto-start lowering if needed
+        checkUllageAndAutoStart();
+
         if (Serial1.available() > 0)
         {
             command = Serial1.readStringUntil('\n');
@@ -89,50 +106,55 @@ namespace PlatformControl
         // Platform: cmd=down,pwm=200
         // Platform: cmd=up,pwm=240
         // Platform: cmd=stop
-        if (command.indexOf("Platform:") != -1 || platform_auto_leveling || platform_moving_up)
+        if (command.indexOf("Platform:") != -1)
         {
-            if (command.indexOf("Platform:") != -1)
-            {
-                String cmd = getValue(command, "cmd=");
-                String pwm_str = getValue(command, "pwm=");
-                int base_speed = pwm_str.length() > 0 ? pwm_str.toInt() : 250;
+            String cmd = getValue(command, "cmd=");
+            String pwm_str = getValue(command, "pwm=");
+            int base_speed = pwm_str.length() > 0 ? pwm_str.toInt() : 250;
 
-                // Clamp base_speed: max 253, min calculated to ensure 0.49x gives at least 60
-                // min = 60 / 0.49 = 122.45, so minimum is 123
-                base_speed = constrain(base_speed, 123, 253);
+            // Clamp base_speed: max 253, min calculated to ensure 0.49x gives at least 60
+            // min = 60 / 0.49 = 122.45, so minimum is 123
+            base_speed = constrain(base_speed, 123, 253);
 
-                if (cmd == "down")
-                {
-                    platform_auto_leveling = true;
-                    platform_base_speed = base_speed;
-                    command = ""; // Clear command to prevent re-parsing
-                }
-                else if (cmd == "up")
-                {
-                    platform_moving_up = true;
-                    platform_base_speed = base_speed;
-                    command = ""; // Clear command to prevent re-parsing
-                }
-                else if (cmd == "stop")
-                {
-                    debugln("================== Stopping autolevel platform =======================");
-                    platform_auto_leveling = false;
-                    platform_moving_up = false;
-                    stopAllMotors();
-                    command = "";
-                    // Don't execute leveling functions below, just clear flags and exit this block
-                }
+            if (cmd == "down")
+            {
+                debugln("Platform: Lowering with auto-leveling");
+                current_operation = LOWERING;
+                platform_base_speed = base_speed;
+                command = ""; // Clear command to prevent re-parsing
             }
+            else if (cmd == "up")
+            {
+                debugln("Platform: Raising");
+                current_operation = RAISING;
+                platform_base_speed = base_speed;
+                command = ""; // Clear command to prevent re-parsing
+            }
+            else if (cmd == "stop")
+            {
+                debug("Platform: Emergency stop - returning to TOP from state: ");
+                debugln(current_operation);
+                current_operation = TOP;
+                stopAllMotors();
+                command = "";
+            }
+        }
 
-            // Only execute leveling functions if flags are still true (not just stopped)
-            if (platform_auto_leveling)
-            {
-                platformAutoLevel();
-            }
-            else if (platform_moving_up)
-            {
-                platformMoveUp();
-            }
+        // Execute active operation
+        switch (current_operation)
+        {
+        case TOP:
+            // Idle state at top, waiting for command
+            break;
+        case LOWERING:
+            platformAutoLevel();
+            break;
+        case BOTTOM:
+            // At bottom, ready to raise
+            break;
+        case RAISING:
+            platformMoveUp();
+            break;
         }
         // monitor limit switches
         monitorSwitches();
@@ -265,9 +287,22 @@ namespace PlatformControl
             analogWrite(MOTOR_4_PWM_2, 0);
         }
     }
-    // Platform auto-leveling function
+    // Platform auto-leveling function with continuous ullage tracking
     void platformAutoLevel()
     {
+        // Read current ullage (already measured in main loop)
+        float current_ullage = Hcsr04::distance_cm;
+
+        // Validate sensor reading - use last valid reading if current is invalid
+        if (current_ullage < valid_ullage_min || current_ullage > valid_ullage_max)
+        {
+            // Invalid reading, use last valid ullage
+            current_ullage = last_ullage_cm;
+            debug("Sensor error - using last valid ullage: ");
+            debug(current_ullage);
+            debugln(" cm");
+        }
+
         // Get current tilt angles from gyro
         float pitch = Gyro::getPitch(); // Forward(+) / Backward(-) tilt
         float roll = Gyro::getRoll();   // Right(+) / Left(-) tilt
@@ -275,7 +310,7 @@ namespace PlatformControl
         // Calculate speed compensation based on tilt
         // Motors 1&2 are front, Motors 3&4 are back
         // Motors 1&3 are left, Motors 2&4 are right
-      
+
         int motor1_speed = platform_base_speed;
         int motor2_speed = platform_base_speed;
         int motor3_speed = platform_base_speed;
@@ -323,6 +358,33 @@ namespace PlatformControl
         motor3_speed = constrain(motor3_speed, 60, 253);
         motor4_speed = constrain(motor4_speed, 60, 253);
 
+        // Ullage-based speed control: stop if material is far (plenty of space)
+        // If ullage exceeds threshold, stop platform (material not piling up yet)
+        if (current_ullage > ullage_threshold_cm)
+        {
+            // Material is far from sensor - STOP, plenty of space already
+            motor1.cmd = "stop";
+            motor2.cmd = "stop";
+            motor3.cmd = "stop";
+            motor4.cmd = "stop";
+            debug("Ullage above threshold (");
+            debug(current_ullage);
+            debug(" cm > ");
+            debug(ullage_threshold_cm);
+            debugln(" cm) - STOPPED, sufficient space for material");
+            last_ullage_cm = current_ullage;
+            current_operation = TOP; // Return to TOP state to re-check and auto-restart when material piles up
+            return; // Don't execute motor control, stay stopped
+        }
+
+        // Ullage below threshold - material piling up, continue lowering to make space
+        debug("Ullage: ");
+        debug(current_ullage);
+        debugln(" cm - material close, continuing descent to make space");
+
+        // Store current ullage for next cycle comparison
+        last_ullage_cm = current_ullage;
+
         // Set motor commands and speeds for downward movement (anticlockwise)
         motor1.cmd = "anticlockwise";
         motor1.speed = motor1_speed;
@@ -359,9 +421,9 @@ namespace PlatformControl
         if (!bottom_limit_sw_1_val && !bottom_limit_sw_2_val &&
             !bottom_limit_sw_3_val && !bottom_limit_sw_4_val)
         {
-            platform_auto_leveling = false;
+            current_operation = BOTTOM;
             stopAllMotors();
-            debugln("All motors reached bottom - auto-leveling complete");
+            debugln("All motors reached bottom - platform at BOTTOM");
             return;
         }
 
@@ -428,9 +490,9 @@ namespace PlatformControl
         if (!top_limit_sw_1_val && !top_limit_sw_2_val &&
             !top_limit_sw_3_val && !top_limit_sw_4_val)
         {
-            platform_moving_up = false;
+            current_operation = TOP;
             stopAllMotors();
-            debugln("All motors reached top - move up complete");
+            debugln("All motors reached top - platform at TOP");
             return;
         }
 
@@ -451,6 +513,12 @@ namespace PlatformControl
         motor_2_running = false;
         motor_3_running = false;
         motor_4_running = false;
+
+        // Set motor commands to stop
+        motor1.cmd = "stop";
+        motor2.cmd = "stop";
+        motor3.cmd = "stop";
+        motor4.cmd = "stop";
 
         // Stop all motor hardware
         digitalWrite(MOTOR_1_A, LOW);
@@ -485,12 +553,13 @@ namespace PlatformControl
         bottom_limit_sw_3_val = digitalRead(BOTTOM_LIMIT_SW_3);
         bottom_limit_sw_4_val = digitalRead(BOTTOM_LIMIT_SW_4);
 
-        // If auto-leveling or moving up is active, skip global stop - let those functions handle per-motor stops
-        // if (platform_auto_leveling || platform_moving_up)
-        // {
-        //     return;
-        // }
+        // If platform operations are active, skip global stop - let state machine handle per-motor stops
+        if (current_operation == LOWERING || current_operation == RAISING)
+        {
+            return;
+        }
 
+        // Global safety stops only for TOP and BOTTOM states (manual motor control)
         // stop all motors from moving up
         if (!top_limit_sw_1_val || !top_limit_sw_2_val || !top_limit_sw_3_val || !top_limit_sw_4_val)
         {
@@ -502,7 +571,40 @@ namespace PlatformControl
             stopAllMotors();
         }
     }
+
+    // Check ullage and automatically start lowering if threshold exceeded
+    void checkUllageAndAutoStart()
+    {
+        // Only check when platform is at TOP (idle)
+        if (current_operation != TOP)
+        {
+            return;
+        }
+
+        float current_ullage = Hcsr04::distance_cm;
+
+        // Validate sensor reading - ignore erratic values
+        if (current_ullage < valid_ullage_min || current_ullage > valid_ullage_max)
+        {
+            // Invalid reading, skip this cycle
+            return;
+        }
+
+        // If ullage is less than threshold, automatically start lowering
+        // Material is piling up close to sensor - need to make space by lowering
+        if (current_ullage < ullage_threshold_cm)
+        {
+            debug("Auto-start: Ullage (");
+            debug(current_ullage);
+            debug(" cm) < threshold (");
+            debug(ullage_threshold_cm);
+            debugln(" cm), material close - starting platform lowering");
+            current_operation = LOWERING;
+            platform_base_speed = 200; // Default speed for auto-start
+        }
+    }
     //
+    
     void logSwitchStates()
     {
         debug("top 1:");
