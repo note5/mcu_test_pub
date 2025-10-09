@@ -146,11 +146,116 @@
                         </q-card-section>
                     </q-card>
 
+                    <!-- Platform Controls -->
+                    <q-card class="q-mb-lg">
+                        <q-card-section>
+                            <div class="text-h6 q-mb-md">
+                                Platform Control
+                            </div>
+
+                            <q-card bordered class="motor-card" :class="platform.state !== 'stopped' ? 'motor-status-active' : 'motor-status-stopped'">
+                                <q-card-section class="bg-deep-purple-1">
+                                    <div class="row items-center">
+                                        <div class="col">
+                                            <div class="text-subtitle1 text-weight-medium">
+                                                Auto-Leveling Platform
+                                            </div>
+                                        </div>
+                                        <div class="col-auto">
+                                            <q-chip
+                                                :color="platform.state === 'lowering' ? 'positive' : platform.state === 'raising' ? 'info' : 'grey'"
+                                                size="sm"
+                                            >
+                                                {{ platform.state.toUpperCase() }}
+                                            </q-chip>
+                                        </div>
+                                    </div>
+                                </q-card-section>
+
+                                <q-card-section>
+                                    <!-- PWM Speed Control -->
+                                    <div class="q-mb-lg">
+                                        <div class="text-subtitle2 q-mb-sm">Speed Control</div>
+                                        <div class="pwm-slider-container">
+                                            <q-slider
+                                                v-model="platform.pwm"
+                                                :min="123"
+                                                :max="253"
+                                                :step="5"
+                                                label
+                                                label-always
+                                                color="deep-purple"
+                                                track-color="deep-purple-2"
+                                                :disable="!connected"
+                                            />
+                                        </div>
+                                        <div class="text-caption text-center q-mt-sm">
+                                            PWM Value: {{ platform.pwm }} / 253 ({{ Math.round((platform.pwm / 253) * 100) }}%)
+                                        </div>
+                                    </div>
+
+                                    <!-- Platform Direction Controls -->
+                                    <div class="q-mb-md">
+                                        <div class="text-subtitle2 q-mb-sm">Platform Movement</div>
+                                        <div class="row q-gutter-sm">
+                                            <div class="col">
+                                                <q-btn
+                                                    @click="controlPlatform('down')"
+                                                    :disable="!connected"
+                                                    :color="platform.state === 'lowering' ? 'positive' : 'deep-purple'"
+                                                    :outline="platform.state !== 'lowering'"
+                                                    label="Lower (Auto-Level)"
+                                                    icon="arrow_downward"
+                                                    class="full-width"
+                                                    size="md"
+                                                />
+                                            </div>
+                                            <div class="col">
+                                                <q-btn
+                                                    @click="controlPlatform('up')"
+                                                    :disable="!connected"
+                                                    :color="platform.state === 'raising' ? 'info' : 'deep-purple'"
+                                                    :outline="platform.state !== 'raising'"
+                                                    label="Raise"
+                                                    icon="arrow_upward"
+                                                    class="full-width"
+                                                    size="md"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Platform Stop Button -->
+                                    <div class="stop-button-container">
+                                        <q-btn
+                                            @click="controlPlatform('stop')"
+                                            :disable="!connected"
+                                            color="negative"
+                                            label="Stop Platform"
+                                            icon="stop"
+                                            class="full-width"
+                                            size="md"
+                                        />
+                                    </div>
+
+                                    <!-- Platform Info -->
+                                    <div class="q-mt-md q-pa-sm bg-blue-grey-1 rounded-borders">
+                                        <div class="text-caption">
+                                            <strong>Auto-Leveling:</strong> Maintains level descent using gyroscope
+                                            <br>
+                                            <strong>Ullage Tracking:</strong> Automatically adjusts based on material level
+                                        </div>
+                                    </div>
+                                </q-card-section>
+                            </q-card>
+                        </q-card-section>
+                    </q-card>
+
                     <!-- Motor Controls -->
                     <q-card class="q-mb-lg">
                         <q-card-section>
                             <div class="text-h6 q-mb-md">
-                                Motor Controls
+                                Individual Motor Controls
                                 <q-space />
                                 <div class="add-motor-button">
                                     <q-btn 
@@ -478,6 +583,12 @@
                     connectionTime: '00:00:00',
                     commandCount: 0,
 
+                    // Platform configuration
+                    platform: {
+                        pwm: 200,
+                        state: 'stopped' // stopped, lowering, raising
+                    },
+
                     // Generic motor configuration
                     motors: [
                         { id: 1, name: 'Motor 1', pwm: 150, direction: null, color: 'blue' },
@@ -497,10 +608,11 @@
                     colorOptions: ['blue', 'green', 'purple', 'orange', 'red', 'cyan', 'pink', 'indigo', 'teal', 'amber'],
 
                     quickCommands: [
+                        { label: 'Platform Down', command: 'Platform: cmd=down,pwm=200' },
+                        { label: 'Platform Up', command: 'Platform: cmd=up,pwm=200' },
+                        { label: 'Platform Stop', command: 'Platform: cmd=stop' },
                         { label: 'Status', command: 'STATUS' },
-                        { label: 'Reset', command: 'RESET' },
-                        { label: 'Hello', command: 'HELLO' },
-                        { label: 'Version', command: 'VERSION' }
+                        { label: 'Reset', command: 'RESET' }
                     ]
                 }
             },
@@ -609,11 +721,31 @@
                     }
                 },
 
+                async controlPlatform(command) {
+                    const cmd = `Platform: cmd=${command},pwm=${this.platform.pwm}`;
+                    await this.sendCommand(cmd);
+
+                    // Update UI state
+                    if (command === 'stop') {
+                        this.platform.state = 'stopped';
+                    } else if (command === 'down') {
+                        this.platform.state = 'lowering';
+                        this.showNotify('Platform lowering with auto-leveling', 'info');
+                    } else if (command === 'up') {
+                        this.platform.state = 'raising';
+                        this.showNotify('Platform raising', 'info');
+                    }
+                },
+
                 async emergencyStop() {
+                    // Stop platform first
+                    await this.controlPlatform('stop');
+
+                    // Then stop all individual motors
                     for (const motor of this.motors) {
                         await this.controlMotor(motor.id, 'stop');
                     }
-                    this.showNotify('Emergency Stop Activated!', 'negative');
+                    this.showNotify('Emergency Stop Activated - All Systems Stopped!', 'negative');
                 },
 
                 addMotor() {
