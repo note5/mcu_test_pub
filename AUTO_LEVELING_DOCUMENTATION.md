@@ -43,8 +43,10 @@ LEFT              RIGHT
 - **Trigger Pin**: 45
 - **Echo Pin**: 44
 - **Measurement**: Distance in centimeters from sensor to platform/material surface
-- **Ullage**: The distance (air gap) between sensor and material - decreases as material fills
-- **Threshold**: 20cm (configurable) - platform stops when ullage drops below this value
+- **Ullage**: The distance (air gap) between sensor and material surface
+- **Threshold**: 15cm (configurable) - platform operates when ullage is below this value
+- **Valid Range**: 2-200cm (readings outside this range are filtered as sensor errors)
+- **Update Frequency**: Measured once per main loop (before platform control executes)
 
 ---
 
@@ -56,16 +58,19 @@ LEFT              RIGHT
 
 2. **[include/lowering-platform.h](include/lowering-platform.h)**
    - Lines 6-7: Added `#include "gyro.h"` and `#include "hcsr04.h"`
-   - Lines 10-11: Added ullage tracking variables (last_distance_stopped_cm, ullage_threshold_cm)
-   - Lines 14-21: Enhanced state machine enum (TOP, LOWERING, WAITING_FILL, BOTTOM, RAISING)
-   - Lines 29-33: Function declarations (platformAutoLevel, platformMoveUp, checkUllageAndContinue)
-   - Lines 101-134: Platform command parser (down, up, stop) with enum-based state management
-   - Lines 107-109: PWM range validation (123-253)
-   - Lines 136-157: Enhanced state machine switch statement
-   - Lines 290-420: Auto-leveling algorithm with ullage monitoring and PWM clamping
+   - Lines 11-14: Ullage tracking variables (last_ullage_cm, ullage_threshold_cm, sensor validation limits)
+   - Lines 16-22: State machine enum (TOP, LOWERING, BOTTOM, RAISING)
+   - Lines 31-33: Function declarations (platformAutoLevel, platformMoveUp, checkUllageAndAutoStart)
+   - Lines 49-50: Auto-start ullage check called at beginning of forever loop
+   - Lines 104-138: Platform command parser (down, up, stop) with enum-based state management
+   - Lines 110-112: PWM range validation (123-253)
+   - Lines 140-156: State machine switch statement
+   - Lines 290-420: Auto-leveling algorithm with continuous ullage tracking and PWM clamping
+   - Lines 296-304: Sensor validation (uses last valid reading if current is invalid)
+   - Lines 349-374: Ullage-based stop logic (stops if ullage > threshold, continues if ≤ threshold)
    - Lines 422-464: Platform move up implementation with per-motor limit control
    - Lines 525-541: Modified switch monitoring for per-motor control during operations
-   - Lines 544-561: Ullage checking function for automatic resume
+   - Lines 568-591: Auto-start function with sensor validation
 
 3. **[include/hcsr04.h](include/hcsr04.h)**
    - Complete ultrasonic sensor driver implementation
@@ -80,9 +85,8 @@ The platform control system uses an enum-based state machine for clear, predicta
 
 ```cpp
 enum PlatformOperation {
-    TOP,              // All top limit switches active, waiting to start
-    LOWERING,         // Auto-leveling descent in progress
-    WAITING_FILL,     // Stopped, waiting for ullage threshold to be reached again
+    TOP,              // All top limit switches active, or ullage > threshold
+    LOWERING,         // Auto-leveling descent tracking material level
     BOTTOM,           // All bottom limit switches active, fully lowered
     RAISING           // Moving up to top
 };
@@ -91,77 +95,75 @@ enum PlatformOperation {
 ### State Transitions
 
 ```
-        ┌──────────────────────────────────────┐
-        │                                      │
-        ▼                                      │
-    ┌───────┐ cmd=down  ┌──────────┐          │
-    │  TOP  │──────────▶│ LOWERING │          │
-    └───────┘           └──────────┘          │
-        ▲                    │                 │
-        │                    │ ullage < 20cm   │
-        │                    ▼                 │
-        │               ┌──────────────┐      │
-        │               │ WAITING_FILL │      │
-        │               └──────────────┘      │
-        │                    │                 │
-        │    ullage increases│by 20cm          │
-        │                    ▼                 │
-        │               ┌──────────┐          │
-        │               │ LOWERING │──────┐   │
-        │               └──────────┘      │   │
-        │                    │            │   │
-        │                    └────────────┘   │
-        │                    (cycle repeats)  │
-        │                    │                 │
-        │      all bottom    │                 │
-        │      limits hit    ▼                 │
-        │               ┌────────┐             │
-        │    cmd=up     │ BOTTOM │             │
-        │         ┌─────┤        │             │
-        │         │     └────────┘             │
-        │         ▼                            │
-        │    ┌─────────┐                       │
-        │    │ RAISING │                       │
-        │    └─────────┘                       │
-        │         │ all top limits hit         │
-        └─────────┴────────────────────────────┘
+System Start / ullage > 15cm
+        ↓
+    ┌───────┐
+    │  TOP  │◄─────────────────────────┐
+    │       │                          │
+    └───────┘                          │
+        │                              │
+        │ Auto-start:                  │
+        │ ullage < 15cm                │
+        │ (material close)             │
+        ▼                              │
+    ┌──────────┐                       │
+    │ LOWERING │                       │
+    │          │                       │
+    └──────────┘                       │
+        │                              │
+        │ Continuous operation:        │
+        │ • ullage < 15cm → Continue   │
+        │ • ullage > 15cm → Stop & TOP │
+        │                              │
+        │                              │
+        │ All bottom                   │
+        │ limits = 0                   │
+        ▼                              │
+    ┌────────┐                         │
+    │ BOTTOM │                         │
+    │        │                         │
+    └────────┘                         │
+        │                              │
+        │ cmd=up                       │
+        ▼                              │
+    ┌─────────┐                        │
+    │ RAISING │                        │
+    │         │                        │
+    └─────────┘                        │
+        │                              │
+        │ All top limits = 0           │
+        └──────────────────────────────┘
 ```
 
 ### State Descriptions
 
-#### **TOP** (Idle)
-- **Entry**: System startup, after all top limit switches triggered
-- **Purpose**: Ready state, waiting for commands
+#### **TOP** (Idle/Ready)
+- **Entry**: System startup, ullage > 15cm, or after stop command
+- **Purpose**: Ready state, auto-start monitoring active
 - **Motor Control**: All motors stopped
+- **Auto-Start Check**: Continuously monitors ullage
+  - If ullage < 15cm → Automatically transitions to LOWERING
+  - Material is close to sensor, needs space
 - **Transitions**:
-  - `cmd=down` → LOWERING
+  - ullage < 15cm (auto) → LOWERING
+  - `cmd=down` (manual) → LOWERING
   - Manual motor commands allowed
 
-#### **LOWERING** (Auto-Leveling Descent with Ullage Monitoring)
-- **Entry**: From TOP or WAITING_FILL state
-- **Purpose**: Lower platform with auto-leveling while monitoring ullage
+#### **LOWERING** (Auto-Leveling Descent Tracking Material)
+- **Entry**: From TOP (auto-start or manual command)
+- **Purpose**: Lower platform with auto-leveling, track material level
 - **Motor Control**:
   - All motors move down (anticlockwise)
   - Speed compensated based on tilt (±5° threshold, 0.7× for lower corners)
   - Per-motor bottom limit switches
 - **Ullage Monitoring**:
   - Continuously measures distance with HC-SR04
-  - Checks if ullage < 20cm threshold
+  - Sensor validation: 2-200cm range (invalid readings use last valid value)
+  - **If ullage > 15cm**: Platform STOPS, returns to TOP (material far away, sufficient space)
+  - **If ullage ≤ 15cm**: Platform CONTINUES lowering (material close, making space)
 - **Transitions**:
-  - ullage < 20cm → WAITING_FILL
+  - ullage > 15cm → TOP (stops, waits for material to pile up)
   - All bottom limits triggered → BOTTOM
-  - `cmd=stop` → TOP
-
-#### **WAITING_FILL** (Stopped, Waiting for Material)
-- **Entry**: From LOWERING when ullage drops below threshold
-- **Purpose**: Wait for material to be added until ullage increases
-- **Motor Control**: All motors stopped
-- **Ullage Monitoring**:
-  - Continuously measures distance
-  - Calculates: `distance_change = current_distance - last_distance_stopped_cm`
-  - Checks if material has filled enough
-- **Transitions**:
-  - `distance_change ≥ 20cm` → LOWERING (automatic resume)
   - `cmd=stop` → TOP
 
 #### **BOTTOM** (Fully Lowered)
@@ -189,35 +191,28 @@ enum PlatformOperation {
 
 ### High-Level Flow
 
-#### Auto-Leveling Down with Ullage Monitoring
+#### Auto-Start and Auto-Leveling with Ullage Tracking
 ```
-1. Receive command: "Platform: cmd=down,pwm=200"
-2. Validate and clamp PWM (123-253 range)
-3. Transition to LOWERING state
-4. Loop every cycle:
-   a. Measure ullage (distance from sensor to platform)
-   b. Check if ullage < 20cm threshold
-      - If YES: Transition to WAITING_FILL, stop motors, save last_distance
-      - If NO: Continue lowering
-   c. Read gyro sensors (pitch & roll angles)
-   d. Calculate speed compensation for each motor
-   e. Clamp individual motor speeds (60-253 range)
-   f. Apply motor commands with adjusted speeds
-   g. Check individual bottom limit switches
-   h. Stop individual motors as they reach bottom
-   i. Exit when all motors reach bottom (→ BOTTOM state)
-```
-
-#### Waiting and Auto-Resume
-```
-1. Platform in WAITING_FILL state (motors stopped)
-2. Loop every cycle:
-   a. Measure current ullage
-   b. Calculate distance_change = current_distance - last_distance_stopped_cm
-   c. Check if distance_change ≥ 20cm
-      - If YES: Transition to LOWERING (automatic resume)
-      - If NO: Continue waiting
-3. Process repeats until platform reaches BOTTOM
+1. System monitors ullage continuously in TOP state
+2. If ullage < 15cm: Auto-start → Transition to LOWERING
+   OR
+   Receive manual command: "Platform: cmd=down,pwm=200"
+3. Validate and clamp PWM (123-253 range)
+4. Transition to LOWERING state
+5. Loop every cycle:
+   a. Read ullage (already measured in main loop)
+   b. Validate sensor reading (2-200cm range)
+      - If invalid: Use last valid ullage, log error
+   c. Check ullage threshold:
+      - If ullage > 15cm: STOP motors, transition to TOP (material far, sufficient space)
+      - If ullage ≤ 15cm: CONTINUE lowering (material close, making space)
+   d. Read gyro sensors (pitch & roll angles)
+   e. Calculate speed compensation for each motor based on tilt
+   f. Clamp individual motor speeds (60-253 range)
+   g. Apply motor commands with adjusted speeds
+   h. Check individual bottom limit switches
+   i. Stop individual motors as they reach bottom
+   j. Exit when all motors reach bottom (→ BOTTOM state)
 ```
 
 #### Simple Up Movement
@@ -269,23 +264,32 @@ Actions:
   - Exit all platform movement modes
 ```
 
-#### Step 2: Ullage Monitoring (LOWERING State Only)
-**Location**: [lowering-platform.h:292-306](include/lowering-platform.h#L292-L306)
+#### Step 2: Ullage Validation and Monitoring (LOWERING State Only)
+**Location**: [lowering-platform.h:293-374](include/lowering-platform.h#L293-L374)
 
 ```cpp
-Measure distance with HC-SR04 ultrasonic sensor:
-- Call Hcsr04::measure()
-- Read current_distance = Hcsr04::distance_cm
+Read current ullage (already measured in main loop):
+- current_ullage = Hcsr04::distance_cm
 
-Check threshold:
-- If current_distance < ullage_threshold_cm (20cm):
-  - Transition: current_operation = WAITING_FILL
-  - Save: last_distance_stopped_cm = current_distance
-  - Call stopAllMotors()
-  - Log: "Ullage threshold reached: [distance] cm - waiting for fill"
-  - Return (exit function, motors stopped)
+Validate sensor reading:
+- If current_ullage < 2.0cm OR current_ullage > 200.0cm:
+  - Invalid reading (sensor error or out of range)
+  - Use last valid reading: current_ullage = last_ullage_cm
+  - Log: "Sensor error - using last valid ullage"
 
-- Otherwise: Continue to gyro reading and auto-leveling
+Check ullage threshold:
+- If current_ullage > ullage_threshold_cm (15cm):
+  - Material is far from sensor (sufficient space already)
+  - Set all motor.cmd = "stop"
+  - Transition: current_operation = TOP
+  - Log: "Ullage above threshold - STOPPED, sufficient space for material"
+  - Return (exit function, motors stopped, will auto-restart when material piles up)
+
+- If current_ullage ≤ ullage_threshold_cm (15cm):
+  - Material is close to sensor (need to make space)
+  - Log: "Material close, continuing descent to make space"
+  - Continue to gyro reading and auto-leveling
+  - Store: last_ullage_cm = current_ullage
 ```
 
 #### Step 3: Gyro Reading (Auto-Leveling Down Only)
@@ -495,8 +499,10 @@ If gyro fails to update:
 | Tilt Threshold | [lowering-platform.h:281,288,300,307](include/lowering-platform.h#L281) | 5.0° | Minimum tilt angle to trigger compensation |
 | Speed Reduction Factor | [lowering-platform.h:284,291,303,310](include/lowering-platform.h#L284) | 0.7 (70%) | Speed multiplier for lower corners |
 | **Ullage Monitoring** | | | |
-| Ullage Threshold | [lowering-platform.h:11](include/lowering-platform.h#L11) | 20.0 cm | Distance threshold to trigger stop/resume |
-| Last Distance Stopped | [lowering-platform.h:10](include/lowering-platform.h#L10) | 0.0 cm | Stored distance when platform stopped |
+| Ullage Threshold | [lowering-platform.h:12](include/lowering-platform.h#L12) | 15.0 cm | Clearance threshold - platform operates when ullage < threshold |
+| Last Valid Ullage | [lowering-platform.h:11](include/lowering-platform.h#L11) | 0.0 cm | Last valid ullage reading for filtering |
+| Sensor Min Valid | [lowering-platform.h:13](include/lowering-platform.h#L13) | 2.0 cm | Minimum valid sensor reading |
+| Sensor Max Valid | [lowering-platform.h:14](include/lowering-platform.h#L14) | 200.0 cm | Maximum valid sensor reading |
 | **Timing** | | | |
 | Base Speed Default | [lowering-platform.h:38](include/lowering-platform.h#L38) | 254 | Default PWM if not specified in command |
 | Gyro Update Rate | [timing.h:69](include/timing.h#L69) | 500ms | How often gyro is read |
@@ -530,52 +536,59 @@ If gyro fails to update:
 - Add deadband around 0° (±1°) where no compensation occurs
 - Calibrate gyro sensor offset
 
-**If platform stops too frequently (ullage monitoring):**
-- Decrease ullage_threshold_cm from 20cm to 10-15cm
-- Allows platform to get closer before stopping
-- Useful for slower fill rates
+**If platform starts/stops too frequently (ullage monitoring):**
+- Increase ullage_threshold_cm from 15cm to 20-25cm
+- Provides wider operating margin
+- Useful for uneven material surfaces or noisy sensor readings
 
-**If platform gets too close to material:**
-- Increase ullage_threshold_cm from 20cm to 25-30cm
-- Provides more safety clearance
-- Useful for fast fill rates or uneven material surfaces
+**If platform doesn't start when material is close:**
+- Decrease ullage_threshold_cm from 15cm to 10-12cm
+- Allows closer operation before triggering
+- Check sensor is measuring correctly
 
-**If platform doesn't resume after material added:**
-- Check ultrasonic sensor mounting and alignment
-- Verify sensor is measuring correctly (check Hcsr04::distance_cm)
-- Ensure material surface is relatively flat (sensor needs consistent reading)
-- Consider reducing ullage_threshold_cm if fill rate is slow
+**If sensor gives erratic readings:**
+- Adjust valid_ullage_min and valid_ullage_max (currently 2-200cm)
+- Check sensor mounting - must be perpendicular to material surface
+- Ensure material surface is relatively flat
+- Add shielding from electrical noise
+- Verify 5V power supply is stable
+
+**If platform pulses rapidly (start/stop/start):**
+- Sensor filtering already implemented (2-200cm range)
+- Check for loose sensor connections
+- Increase ullage_threshold_cm for more tolerance
+- Verify material surface is not highly reflective or absorbent
 
 ---
 
 ## Usage Examples
 
-### Example 1: Auto-Leveling Descent with Ullage Monitoring
+### Example 1: Automatic Continuous Material Filling
 ```
-Command: Platform: cmd=down,pwm=120
+Scenario: Platform auto-starts and tracks material level
 
-Expected behavior:
-1. All motors start descending at 120 PWM (state: LOWERING)
-2. System monitors tilt every 500ms and ullage continuously
-3. Adjusts speeds automatically to maintain level
-4. When ullage drops below 20cm, motors stop (state: WAITING_FILL)
-5. System waits for material to be added
-6. When ullage increases by 20cm, automatically resumes lowering
-7. Repeats until all bottom limits reached (state: BOTTOM)
+Initial State:
+- Ullage = 50cm → Platform at TOP (idle)
 
+Material starts piling up:
 Serial output:
-"Platform: Lowering with auto-leveling"
+"Auto-start: Ullage (12.0 cm) < threshold (15.0 cm), material close - starting platform lowering"
+"Ullage: 12.0 cm - material close, continuing descent to make space"
 "Tilt - Pitch: 2.1° Roll: 1.3° Speeds: M1=120 M2=120 M3=120 M4=120"
+"Ullage: 10.5 cm - material close, continuing descent to make space"
 "Pitch: Front lower, slowing motors 1&2"
 "Tilt - Pitch: 6.5° Roll: 0.8° Speeds: M1=84 M2=84 M3=120 M4=120"
-"Ullage threshold reached: 18.5 cm - waiting for fill"
-[Motors stopped, waiting...]
-"Material filled, ullage now: 38.7 cm - resuming lowering"
-"Tilt - Pitch: 1.2° Roll: 0.3° Speeds: M1=120 M2=120 M3=120 M4=120"
-"Ullage threshold reached: 19.2 cm - waiting for fill"
-[Motors stopped, waiting...]
-"Material filled, ullage now: 39.5 cm - resuming lowering"
-...
+
+Material feed slows/stops (ullage increases):
+"Ullage above threshold (18.5 cm > 15.0 cm) - STOPPED, sufficient space for material"
+[Platform at TOP, motors stopped]
+
+Material feed resumes (auto-restart):
+"Auto-start: Ullage (13.2 cm) < threshold (15.0 cm), material close - starting platform lowering"
+"Ullage: 12.8 cm - material close, continuing descent to make space"
+[Cycle repeats]
+
+Eventually reaches bottom:
 "Motor 1 bottom limit reached"
 "Motor 2 bottom limit reached"
 "Motor 3 bottom limit reached"
@@ -638,60 +651,80 @@ Expected behavior:
 
 ---
 
-## Ullage Monitoring and Auto-Resume Algorithm
+## Auto-Start and Ullage Tracking Algorithm
 
-### Function: checkUllageAndContinue()
-**Location**: [lowering-platform.h:544-561](include/lowering-platform.h#L544-561)
+### Function: checkUllageAndAutoStart()
+**Location**: [lowering-platform.h:568-591](include/lowering-platform.h#L568-591)
 
 ```
-Purpose: Monitor ullage while in WAITING_FILL state and automatically resume lowering
-when material has been added
+Purpose: Monitor ullage in TOP state and automatically start lowering when material piles up
+close to sensor
 
-Algorithm (executed every loop cycle when state = WAITING_FILL):
-1. Measure current distance:
-   - Call Hcsr04::measure()
-   - Read current_distance = Hcsr04::distance_cm
+Algorithm (executed every loop cycle when state = TOP):
+1. Read current ullage (already measured in main loop):
+   - current_ullage = Hcsr04::distance_cm
 
-2. Calculate distance change since stop:
-   - distance_change = current_distance - last_distance_stopped_cm
+2. Validate sensor reading:
+   - If current_ullage < 2.0cm OR current_ullage > 200.0cm:
+     - Invalid reading (sensor error)
+     - Skip this cycle, return without action
+     - Prevents false triggers from erratic readings
 
-3. Check if material has filled sufficiently:
-   - If distance_change ≥ ullage_threshold_cm (20cm):
+3. Check if material is piling up close to sensor:
+   - If current_ullage < ullage_threshold_cm (15cm):
+     - Material is close to sensor, needs space
      - Transition: current_operation = LOWERING
-     - Log: "Material filled, ullage now: [distance] cm - resuming lowering"
+     - Set: platform_base_speed = 200 (default auto-start speed)
+     - Log: "Auto-start: Ullage (X cm) < threshold (15 cm), material close - starting platform lowering"
      - Next loop cycle will enter platformAutoLevel() automatically
-   - Otherwise:
-     - Continue waiting (motors remain stopped)
 ```
 
 **Operation Example:**
 ```
-Initial Stop:
-- last_distance_stopped_cm = 18.5 cm
-- Ullage threshold = 20.0 cm
-- Platform stops, waits for material
+Scenario: Continuous Material Filling from Below (e.g., conveyor belt)
 
-Material Being Added:
-- current_distance = 20.0 cm → distance_change = 1.5 cm (waiting...)
-- current_distance = 25.0 cm → distance_change = 6.5 cm (waiting...)
-- current_distance = 30.0 cm → distance_change = 11.5 cm (waiting...)
-- current_distance = 38.5 cm → distance_change = 20.0 cm (RESUME!)
+System Start:
+- Ullage = 50cm → Platform at TOP (idle, sufficient space)
 
-Platform resumes lowering automatically
+Material Starts Piling Up:
+- Ullage = 30cm → Still at TOP (sufficient space)
+- Ullage = 20cm → Still at TOP (sufficient space)
+- Ullage = 14cm → AUTO-START! → Transition to LOWERING
+
+Platform Lowering:
+- Ullage = 12cm → Continue lowering (making space)
+- Ullage = 10cm → Continue lowering (making space)
+- Ullage = 18cm → STOP! → Transition to TOP (material slowed/stopped, sufficient space)
+
+Material Piles Up Again:
+- Ullage = 14cm → AUTO-START! → Resume lowering
+- Cycle repeats until BOTTOM reached
+```
+
+**Sensor Filtering Example:**
+```
+Invalid Readings Handled:
+- Ullage = 0.00cm → IGNORED (below minimum 2cm, likely sensor error)
+- Ullage = 239.57cm → IGNORED (above maximum 200cm, likely sensor error)
+- Ullage = 12.5cm → VALID → Auto-start triggered
+
+Prevents rapid start/stop pulsing from erratic sensor readings
 ```
 
 **Key Features:**
-- Fully automatic - no manual intervention required
-- Prevents platform from getting too close to material surface
-- Adapts to variable fill rates
-- Cycle repeats until platform reaches BOTTOM state
+- Fully automatic operation - no manual start command needed
+- Sensor validation prevents false triggers from erratic readings
+- Platform "chases" material surface, maintaining clearance
+- Adapts to variable material fill rates
+- Stops when material is far (saves energy)
+- Resumes when material piles up close
 
 **Practical Application:**
-This is ideal for material filling operations where:
-- Material is being added continuously (e.g., conveyor belt, filling hopper)
-- Platform needs to lower as container fills
-- System must maintain safe clearance between platform and material
-- Example: Automatic bin filling, silo loading, material compaction
+This is ideal for continuous material filling operations where:
+- Material is constantly being added from below (conveyor, hopper, chute)
+- Platform must make space as material accumulates
+- System operates autonomously without human intervention
+- Examples: Bin filling, silo loading, trash compaction, material handling
 
 ---
 

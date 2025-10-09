@@ -22,16 +22,16 @@ namespace PlatformControl
         RAISING   // Moving up to top
     };
     PlatformOperation current_operation = TOP;
-    String command = "";      // holds the incoming command
-    void motor1Ctrl();        //
-    void motor2Ctrl();        //
-    void motor3Ctrl();        //
-    void motor4Ctrl();        //
-    void stopAllMotors();     //
-    void monitorSwitches();   //
-    void logSwitchStates();   //
-    void platformAutoLevel(); //
-    void platformMoveUp();    //
+    String command = "";            // holds the incoming command
+    void motor1Ctrl();              //
+    void motor2Ctrl();              //
+    void motor3Ctrl();              //
+    void motor4Ctrl();              //
+    void stopAllMotors();           //
+    void monitorSwitches();         //
+    void logSwitchStates();         //
+    void platformAutoLevel();       //
+    void platformMoveUp();          //
     void checkUllageAndAutoStart(); //
     // holds the state of the limit switches
     uint8_t top_limit_sw_1_val, top_limit_sw_2_val, top_limit_sw_3_val, top_limit_sw_4_val;
@@ -374,7 +374,7 @@ namespace PlatformControl
             debugln(" cm) - STOPPED, sufficient space for material");
             last_ullage_cm = current_ullage;
             current_operation = TOP; // Return to TOP state to re-check and auto-restart when material piles up
-            return; // Don't execute motor control, stay stopped
+            return;                  // Don't execute motor control, stay stopped
         }
 
         // Ullage below threshold - material piling up, continue lowering to make space
@@ -582,7 +582,8 @@ namespace PlatformControl
         }
 
         float current_ullage = Hcsr04::distance_cm;
-
+        debug("current ullage: ");
+        debugln(current_ullage);
         // Validate sensor reading - ignore erratic values
         if (current_ullage < valid_ullage_min || current_ullage > valid_ullage_max)
         {
@@ -604,7 +605,7 @@ namespace PlatformControl
         }
     }
     //
-    
+
     void logSwitchStates()
     {
         debug("top 1:");
