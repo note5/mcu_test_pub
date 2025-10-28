@@ -1,7 +1,8 @@
-#include <Arduino.h>
+#include "common.h"
 #include "gyro.h"
 #include "timing.h"
 #include "hcsr04.h"
+#include "motor-driver.h"
 
 TwoWire gyro_wire(PB7, PB6);
 SmartDelay updateOrientation(500);
@@ -16,6 +17,8 @@ void setup()
   // Initialize MPU6050
   gyro_wire.begin();
   Gyro::begin();
+  // platform code
+  MotorDriver::init();
 }
 
 void loop()
@@ -25,7 +28,7 @@ void loop()
 
   // Update gyro (non-blocking)
   Gyro::update();
-
+  MotorDriver::forever();
   // Print status periodically
   if (updateOrientation.isReady())
   {
@@ -33,13 +36,13 @@ void loop()
     float pitch = Gyro::getPitch();
     float roll = Gyro::getRoll();
 
-    SerialDebug.print("Pitch: ");
-    SerialDebug.print(pitch);
-    SerialDebug.print(" Roll: ");
-    SerialDebug.println(roll);
-    SerialDebug.print("Distance: ");
-    SerialDebug.println(current_ullage);
-    SerialDebug.println(Gyro::getTiltString());
+    // SerialDebug.print("Pitch: ");
+    // SerialDebug.print(pitch);
+    // SerialDebug.print(" Roll: ");
+    // SerialDebug.println(roll);
+    // SerialDebug.print("Distance: ");
+    // SerialDebug.println(current_ullage);
+    // SerialDebug.println(Gyro::getTiltString());
   }
 
   // Optional: React immediately to new distance readings

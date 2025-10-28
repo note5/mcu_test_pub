@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 
+extern HardwareSerial SerialDebug;
 extern TwoWire gyro_wire;
 // checks if print statements are removed or not
 #define DEBUG 1
@@ -33,3 +34,9 @@ String getValue(String cmd, String keyword)
 }
 
 #endif
+
+/*
+==== USED PINS ====
+I2C => PB7, PB6
+Ultrasoic = > PA0, PA1
+*/ 
