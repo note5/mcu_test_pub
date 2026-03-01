@@ -7,19 +7,25 @@
 
 class I2cLevelSensor {
 private:
-    TwoWire *wire; // Pointer to I2C interface
-    const uint8_t address; // I2C address of the sensor
-    
+    TwoWire *wire;
+    const uint8_t address;
+
+    enum State { IDLE, MEASURING };
+    State sensorState;
+    unsigned long measureStartTime;
+    unsigned long lastCycleTime;
+    float latestDistance;
+
+    static const unsigned long MEASURE_WAIT = 70;
+    static const unsigned long READ_INTERVAL = 2000;
+
 public:
-// constructor that takes twowire object and I2C address
     I2cLevelSensor(TwoWire &w = Wire, uint8_t addr = US42_ADDRESS);
-    //initilize i2c communication returns true if address is found
     bool begin();
-    //get raw values from the sensor
-    uint16_t readDistance();
-    //returns distance in cm
-    float readDistanceInCM();
-    float readAverageDistance(uint8_t samples = 10, uint16_t delayTime = 100);
+    // call every loop iteration - non-blocking
+    void update();
+    // get the latest reading
+    float getDistance();
 };
 
 #endif

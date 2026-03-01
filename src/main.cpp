@@ -30,7 +30,8 @@ void setup()
 
 void loop()
 {
-    // Update door states
+    // Update sensor and door states
+    level_sensor.update();
     service_door.update();
     left_door.update();
     right_door.update();
@@ -42,13 +43,11 @@ void loop()
         // get pin level
         if (command == "level")
         {
-            float avgDistance = level_sensor.readAverageDistance(5, 100);
-            // format level:value
             Serial1.print("level:");
-            Serial1.println(avgDistance);
+            Serial1.println(level_sensor.getDistance());
             return;
         }
-        if (command == "  ")
+        if (command == "doors")
         {
             DoorState::getDoorStates();
             return;
