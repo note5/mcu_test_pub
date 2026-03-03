@@ -17,7 +17,7 @@ private:
     float latestDistance;
 
     static const unsigned long MEASURE_WAIT = 70;
-    static const unsigned long READ_INTERVAL = 2000;
+    static const unsigned long READ_INTERVAL = 1000;
 
 public:
     I2cLevelSensor(TwoWire &w = Wire, uint8_t addr = US42_ADDRESS);
