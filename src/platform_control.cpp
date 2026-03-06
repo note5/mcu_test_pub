@@ -29,19 +29,21 @@ void PlatformControl::update()
 {
     float distance = getSensorDistance();
 
-    // safety: any limit switch active stops the platform immediately
-    if (isBottomLimit() || isTopLimit())
+    // safety: stop only when moving INTO the active limit switch
+    if (isBottomLimit() && state == MOVING_DOWN)
     {
-        if (state == MOVING_DOWN || state == MOVING_UP)
-        {
-            Serial1.println(isBottomLimit() ? "platform: bottom limit, stopping" : "platform: top limit, stopping");
-            stop();
-        }
-        else if (state == DEAD_TIME)
-        {
-            Serial1.println("platform: limit switch, cancelling pending move");
-            state = IDLE;
-        }
+        Serial1.println("platform: bottom limit, stopping");
+        stop();
+    }
+    else if (isTopLimit() && state == MOVING_UP)
+    {
+        Serial1.println("platform: top limit, stopping");
+        stop();
+    }
+    else if ((isBottomLimit() || isTopLimit()) && state == DEAD_TIME)
+    {
+        Serial1.println("platform: limit switch, cancelling pending move");
+        state = IDLE;
     }
 
     switch (state)
@@ -120,7 +122,7 @@ bool PlatformControl::isBottomLimit()
 // drive platform up — enforces dead time if reversing from down
 void PlatformControl::moveUp()
 {
-    if (isTopLimit() || isBottomLimit()) return;
+    if (isTopLimit()) return;
     if (state == MOVING_DOWN)
     {
         digitalWrite(motorUpPin, LOW);
@@ -140,7 +142,7 @@ void PlatformControl::moveUp()
 // drive platform down — enforces dead time if reversing from up
 void PlatformControl::moveDown()
 {
-    if (isBottomLimit() || isTopLimit()) return;
+    if (isBottomLimit()) return;
     if (state == MOVING_UP)
     {
         digitalWrite(motorUpPin, LOW);

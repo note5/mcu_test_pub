@@ -23,7 +23,7 @@ private:
 
     HcSr05 *hcSensor;
 
-    float referenceDistance = 15.0;  // target ullage distance (cm) — set this in code
+    float referenceDistance = 10.0;  // target ullage distance (cm) — set this in code
     bool manualMode = false;         // true = manual only, no auto-compensation
 
     enum State { IDLE, MOVING_DOWN, MOVING_UP, DEAD_TIME };
