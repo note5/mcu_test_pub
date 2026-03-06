@@ -2,25 +2,15 @@
 
 PlatformControl::PlatformControl(uint8_t topPin, uint8_t bottomPin,
                                  uint8_t upPin, uint8_t downPin,
-                                 I2cLevelSensor *i2c, HcSr05 *hc)
+                                 HcSr05 *hc)
     : topLimitPin(topPin), bottomLimitPin(bottomPin),
       motorUpPin(upPin), motorDownPin(downPin),
-      i2cSensor(i2c), hcSensor(hc), referenceDistance(0),
-      referenceSet(false), state(IDLE), pendingState(IDLE), deadTimeStart(0) {}
+      hcSensor(hc),
+      state(IDLE), pendingState(IDLE), deadTimeStart(0), compensationTarget(0) {}
 
-// returns average if both valid, single if only one valid, -1 if none
 float PlatformControl::getSensorDistance()
 {
-    float i2cDist = i2cSensor ? i2cSensor->getDistance() : -1.0;
-    float hcDist = hcSensor ? hcSensor->getDistance() : -1.0;
-
-    if (i2cDist > 0 && hcDist > 0)
-        return (i2cDist + hcDist) / 2.0;
-    if (i2cDist > 0)
-        return i2cDist;
-    if (hcDist > 0)
-        return hcDist;
-    return -1.0;
+    return hcSensor ? hcSensor->getDistance() : -1.0;
 }
 
 void PlatformControl::begin()
@@ -33,69 +23,23 @@ void PlatformControl::begin()
 }
 
 // Non-blocking state machine called every loop iteration.
-// Flow: on startup, captures first valid sensor reading as reference.
-// Then monitors ullage — if it shrinks by 5cm, lowers the platform
-// until the reference distance is restored.
+// Monitors ullage — if it shrinks by 5cm from referenceDistance, lowers the
+// platform until the reference distance is restored.
 void PlatformControl::update()
 {
     float distance = getSensorDistance();
 
-    // in auto mode, handle reference setup and sensor-based compensation
-    if (!manualMode)
+    // safety: any limit switch active stops the platform immediately
+    if (isBottomLimit() || isTopLimit())
     {
-        // on first run, capture the current distance as the target reference
-        if (!referenceSet)
+        if (state == MOVING_DOWN || state == MOVING_UP)
         {
-            if (distance > 0)
-            {
-                if (distance < MIN_REFERENCE_DISTANCE)
-                {
-                    // below minimum ullage — force reference to minimum and lower immediately
-                    referenceDistance = MIN_REFERENCE_DISTANCE;
-                    referenceSet = true;
-                    float drop = MIN_REFERENCE_DISTANCE - distance;
-                    Serial1.print("platform: ullage too low, going down by ");
-                    Serial1.print(drop);
-                    Serial1.println("cm");
-                    moveDown();
-                    state = MOVING_DOWN;
-                }
-                else
-                {
-                    referenceDistance = distance;
-                    referenceSet = true;
-                }
-            }
-            return;
-        }
-    }
-
-    // safety: stop downward movement if bottom limit switch is hit
-    if (isBottomLimit())
-    {
-        if (state == MOVING_DOWN)
-        {
-            Serial1.println("platform: bottom limit reached, stopping");
+            Serial1.println(isBottomLimit() ? "platform: bottom limit, stopping" : "platform: top limit, stopping");
             stop();
         }
-        else if (state == DEAD_TIME && pendingState == MOVING_DOWN)
+        else if (state == DEAD_TIME)
         {
-            Serial1.println("platform: bottom limit, cancelling pending move down");
-            state = IDLE;
-        }
-    }
-
-    // safety: stop upward movement if top limit switch is hit
-    if (isTopLimit())
-    {
-        if (state == MOVING_UP)
-        {
-            Serial1.println("platform: top limit reached, stopping");
-            stop();
-        }
-        else if (state == DEAD_TIME && pendingState == MOVING_UP)
-        {
-            Serial1.println("platform: top limit, cancelling pending move up");
+            Serial1.println("platform: limit switch, cancelling pending move");
             state = IDLE;
         }
     }
@@ -103,22 +47,22 @@ void PlatformControl::update()
     switch (state)
     {
     case IDLE:
-        // auto-compensation: ullage dropped below threshold, start lowering
-        if (!manualMode && distance > 0 && distance <= (referenceDistance - COMPENSATION_THRESHOLD))
+        // trigger compensation whenever ullage drops below reference
+        if (!manualMode && distance > 0 && distance <= referenceDistance)
         {
-            float drop = referenceDistance - distance;
-            Serial1.print("platform: going down by ");
-            Serial1.print(drop);
-            Serial1.println("cm");
+            compensationTarget = distance + COMPENSATION_STEP;
+            Serial1.print("platform: lowering 5cm (ullage ");
+            Serial1.print(distance);
+            Serial1.println("cm)");
             moveDown();
         }
         break;
 
     case MOVING_DOWN:
-        // auto-compensation: platform has lowered enough — ullage restored, stop motor
-        if (!manualMode && distance >= referenceDistance)
+        // stop when platform has lowered by 5cm (ullage increased by 5cm)
+        if (!manualMode && distance >= compensationTarget)
         {
-            Serial1.println("platform: distance restored, stopping");
+            Serial1.println("platform: compensation done, stopping");
             stop();
         }
         break;
@@ -156,7 +100,6 @@ void PlatformControl::update()
 void PlatformControl::setReference(float ref)
 {
     referenceDistance = ref;
-    referenceSet = true;
 }
 
 float PlatformControl::getReference()
@@ -177,7 +120,7 @@ bool PlatformControl::isBottomLimit()
 // drive platform up — enforces dead time if reversing from down
 void PlatformControl::moveUp()
 {
-    if (isTopLimit()) return;
+    if (isTopLimit() || isBottomLimit()) return;
     if (state == MOVING_DOWN)
     {
         digitalWrite(motorUpPin, LOW);
@@ -197,7 +140,7 @@ void PlatformControl::moveUp()
 // drive platform down — enforces dead time if reversing from up
 void PlatformControl::moveDown()
 {
-    if (isBottomLimit()) return;
+    if (isBottomLimit() || isTopLimit()) return;
     if (state == MOVING_UP)
     {
         digitalWrite(motorUpPin, LOW);

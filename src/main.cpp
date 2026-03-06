@@ -1,13 +1,11 @@
 #include <Arduino.h>
 #include "motor_control.h"
-#include "level_sensor.h"
 #include "door_state.h"
 #include "platform_control.h"
 #include "hc_sr05.h"
 
-I2cLevelSensor level_sensor;
 HcSr05 hc_sensor(22, 23); // trigger, echo
-PlatformControl platform(27, 28, 21, 20, &level_sensor, &hc_sensor); // topLimit, bottomLimit, motorUp, motorDown
+PlatformControl platform(27, 28, 21, 20, &hc_sensor); // topLimit, bottomLimit, motorUp, motorDown
 
 //
 DoorState service_door(24, "service");
@@ -20,13 +18,10 @@ void setup()
     pinMode(ENA, OUTPUT);
     pinMode(IN1, OUTPUT);
     pinMode(IN2, OUTPUT);
+    delay(1000);
+    Serial1.println("Starting ...");
     // Initially stop the motor
     motorStop();
-    // Level sensor setup
-    if (!level_sensor.begin())
-    {
-        Serial1.println("Sensor not found!");
-    }
     // HC-SR05 sensor setup
     hc_sensor.begin();
     // platform control setup
@@ -40,7 +35,6 @@ void setup()
 void loop()
 {
     // Update sensors, platform, and door states
-    level_sensor.update();
     hc_sensor.update();
     platform.update();
     service_door.update();
@@ -53,12 +47,7 @@ void loop()
         command.trim();
         if (command.length() == 0) return;
 
-        if (command == "level")
-        {
-            Serial1.print("level:");
-            Serial1.println(level_sensor.getDistance());
-        }
-        else if (command == "hc-level")
+        if (command == "hc-level")
         {
             Serial1.print("hc-level:");
             Serial1.println(hc_sensor.getDistance());

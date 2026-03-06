@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Platform Manual Control</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #fff;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .container { max-width: 520px; width: 100%; }
+
+        header { text-align: center; margin-bottom: 20px; }
+        h1 { font-size: 1.8em; margin-bottom: 6px; }
+
+        .connection-bar {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 12px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .dot {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            background: #ff4444;
+            animation: pulse 2s infinite;
+            flex-shrink: 0;
+        }
+        .dot.connected { background: #44ff44; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+        .card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 22px;
+            border: 1px solid rgba(255,255,255,0.2);
+            margin-bottom: 18px;
+        }
+        .card h3 { font-size: 1.2em; margin-bottom: 14px; }
+
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+        .sensor-box {
+            background: rgba(0,0,0,0.25);
+            border-radius: 10px;
+            padding: 14px;
+            text-align: center;
+        }
+        .sensor-box .label { font-size: 0.82em; opacity: 0.7; margin-bottom: 4px; }
+        .sensor-box .value { font-size: 1.6em; font-weight: bold; }
+
+        .limit-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+        .limit-box {
+            flex: 1;
+            background: rgba(0,0,0,0.25);
+            border-radius: 10px;
+            padding: 12px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .limit-dot {
+            width: 13px; height: 13px;
+            border-radius: 50%;
+            background: #555;
+            display: inline-block;
+        }
+        .limit-dot.active { background: #ff4444; }
+
+        .btn-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        button {
+            flex: 1;
+            background: rgba(255,255,255,0.18);
+            border: 2px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        button:hover { background: rgba(255,255,255,0.3); transform: translateY(-2px); }
+        button:active { transform: translateY(0); }
+        button.active {
+            background: rgba(68,255,68,0.3);
+            border-color: #44ff44;
+        }
+        .stop-btn {
+            width: 100%;
+            background: rgba(255,68,68,0.5);
+            border-color: #ff4444;
+            font-size: 18px;
+            padding: 18px;
+            margin-bottom: 0;
+        }
+        .stop-btn:hover { background: rgba(255,68,68,0.8); }
+
+        .state-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            font-size: 1em;
+        }
+        .state-badge {
+            background: rgba(0,0,0,0.3);
+            border-radius: 6px;
+            padding: 4px 12px;
+            font-weight: bold;
+            letter-spacing: 0.05em;
+        }
+
+        .serial-log {
+            background: rgba(0,0,0,0.35);
+            border-radius: 10px;
+            padding: 10px 12px;
+            max-height: 140px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>Platform Manual Control</h1>
+    </header>
+
+    <!-- Connection status -->
+    <div class="connection-bar">
+        <div class="dot" id="connDot"></div>
+        <span id="connText">Checking MCU connection...</span>
+    </div>
+
+    <!-- Ultrasonic Sensors -->
+    <div class="card">
+        <h3>Ultrasonic Sensors</h3>
+        <div class="sensor-grid">
+            <div class="sensor-box">
+                <div class="label">HC-SR05 (cm)</div>
+                <div class="value" id="hcLevel">--</div>
+            </div>
+            <div class="sensor-box">
+                <div class="label">Platform Ref (cm)</div>
+                <div class="value" id="platformRef">--</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Platform Control -->
+    <div class="card">
+        <h3>Platform Control</h3>
+
+        <!-- Limit switches -->
+        <div class="limit-row">
+            <div class="limit-box">
+                <span class="limit-dot" id="topLimitDot"></span>
+                <span>Top Limit</span>
+            </div>
+            <div class="limit-box">
+                <span class="limit-dot" id="bottomLimitDot"></span>
+                <span>Bottom Limit</span>
+            </div>
+        </div>
+
+        <!-- State -->
+        <div class="state-row">
+            State: <span class="state-badge" id="platformState">--</span>
+        </div>
+
+        <!-- Up / Down -->
+        <div class="btn-row">
+            <button id="btnUp" onclick="platformCmd('platform-up')">▲ UP</button>
+            <button id="btnDown" onclick="platformCmd('platform-down')">▼ DOWN</button>
+        </div>
+
+        <!-- Stop -->
+        <button class="stop-btn" onclick="platformCmd('platform-stop')">■ STOP</button>
+    </div>
+
+    <!-- Serial Log -->
+    <div class="card">
+        <h3>Log</h3>
+        <div class="serial-log" id="log"></div>
+    </div>
+</div>
+
+<script>
+    const BASE = '';  // same origin — FastAPI serves this page
+
+    // ── Connection check ──────────────────────────────────────────────
+    async function checkConnection() {
+        try {
+            const r = await fetch(BASE + '/platform/connected');
+            const d = await r.json();
+            document.getElementById('connDot').classList.toggle('connected', d.connected);
+            document.getElementById('connText').textContent = d.connected ? 'MCU Connected' : 'MCU Disconnected';
+        } catch (e) {
+            document.getElementById('connText').textContent = 'API unreachable';
+        }
+    }
+
+    // ── Send command ──────────────────────────────────────────────────
+    async function sendCmd(cmd) {
+        try {
+            const r = await fetch(BASE + '/platform/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cmd })
+            });
+            const d = await r.json();
+            if (d.response) processResponse(d.response);
+            appendLog(`> ${cmd}  ${d.response ? '← ' + d.response : ''}`);
+            return d.response || '';
+        } catch (e) {
+            appendLog(`Error sending ${cmd}: ${e}`);
+            return '';
+        }
+    }
+
+    // ── Platform buttons ──────────────────────────────────────────────
+    function platformCmd(cmd) {
+        document.getElementById('btnUp').classList.remove('active');
+        document.getElementById('btnDown').classList.remove('active');
+        if (cmd === 'platform-up')   document.getElementById('btnUp').classList.add('active');
+        if (cmd === 'platform-down') document.getElementById('btnDown').classList.add('active');
+        sendCmd(cmd).then(() => {
+            // refresh status shortly after
+            setTimeout(pollStatus, 400);
+        });
+    }
+
+    // ── Parse MCU response lines ──────────────────────────────────────
+    function processResponse(raw) {
+        for (const line of raw.split('\n')) {
+            const t = line.trim();
+            if (!t) continue;
+
+            // platform-status:idle,ref:15.00,top:0,bottom:1
+            if (t.startsWith('platform-status:')) {
+                const body = t.slice('platform-status:'.length);
+                const parts = body.split(',');
+                document.getElementById('platformState').textContent = parts[0] || '--';
+                for (const p of parts) {
+                    if (p.startsWith('ref:'))
+                        document.getElementById('platformRef').textContent =
+                            parseFloat(p.slice(4)).toFixed(1);
+                    if (p.startsWith('top:'))
+                        document.getElementById('topLimitDot')
+                            .classList.toggle('active', p.slice(4) === '1');
+                    if (p.startsWith('bottom:'))
+                        document.getElementById('bottomLimitDot')
+                            .classList.toggle('active', p.slice(7) === '1');
+                }
+            }
+            // hc-level:34.5
+            else if (t.startsWith('hc-level:')) {
+                const val = parseFloat(t.slice(9));
+                document.getElementById('hcLevel').textContent =
+                    isNaN(val) ? '--' : val.toFixed(1);
+            }
+        }
+    }
+
+    // ── Polling ───────────────────────────────────────────────────────
+    async function pollStatus() {
+        const r = await fetch(BASE + '/platform/status');
+        const d = await r.json();
+        if (d.response) processResponse(d.response);
+    }
+
+    async function pollHc() {
+        const r = await fetch(BASE + '/platform/hc-level');
+        const d = await r.json();
+        if (d.response) processResponse(d.response);
+    }
+
+    // ── Log ───────────────────────────────────────────────────────────
+    function appendLog(text) {
+        const el = document.getElementById('log');
+        el.textContent += text + '\n';
+        el.scrollTop = el.scrollHeight;
+        const lines = el.textContent.split('\n');
+        if (lines.length > 60) el.textContent = lines.slice(-60).join('\n');
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────
+    checkConnection();
+    pollStatus();
+    pollHc();
+
+    setInterval(checkConnection, 5000);
+    setInterval(pollStatus,      2000);
+    setInterval(pollHc,          2000);
+</script>
+</body>
+</html>
