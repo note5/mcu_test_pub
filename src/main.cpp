@@ -3,9 +3,11 @@
 #include "door_state.h"
 #include "platform_control.h"
 #include "hc_sr05.h"
+#include "ir_array.h"
 
 HcSr05 hc_sensor(22, 23); // trigger, echo
-PlatformControl platform(27, 28, 21, 20, &hc_sensor); // topLimit, bottomLimit, motorUp, motorDown
+PlatformControl platform(31, 30, 21, 20, &hc_sensor); // topLimit, bottomLimit, motorUp, motorDown
+IrArray irArray(27, 28, 29); // top-level sensors — all 0 = bin full (evenly spread)
 
 //
 DoorState service_door(24, "service");
@@ -26,6 +28,8 @@ void setup()
     hc_sensor.begin();
     // platform control setup
     platform.begin();
+    // IR array setup
+    irArray.begin();
     // set door interrupt
     service_door.begin();
     left_door.begin();
@@ -80,7 +84,14 @@ void loop()
             Serial1.print(",top:");
             Serial1.print(platform.isTopLimit() ? "1" : "0");
             Serial1.print(",bottom:");
-            Serial1.println(platform.isBottomLimit() ? "1" : "0");
+            Serial1.print(platform.isBottomLimit() ? "1" : "0");
+            Serial1.print(",ir:");
+            for (uint8_t i = 0; i < 3; i++) {
+                if (i > 0) Serial1.print("/");
+                Serial1.print(irArray.read(i) ? "1" : "0");
+            }
+            Serial1.print(",full:");
+            Serial1.println(irArray.isFull() ? "1" : "0");
         }
         else
         {
