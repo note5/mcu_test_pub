@@ -8,9 +8,14 @@ PlatformControl::PlatformControl(uint8_t topPin, uint8_t bottomPin,
       hcSensor(hc),
       state(IDLE), pendingState(IDLE), deadTimeStart(0), compensationTarget(0) {}
 
-float PlatformControl::getSensorDistance()
+float PlatformControl::getSensorMinDistance()
 {
-    return hcSensor ? hcSensor->getDistance() : -1.0;
+    return hcSensor ? hcSensor->getMinDistance() : -1.0;
+}
+
+bool PlatformControl::allSensorsBelow(float threshold)
+{
+    return hcSensor ? hcSensor->allBelow(threshold) : false;
 }
 
 void PlatformControl::begin()
@@ -27,7 +32,7 @@ void PlatformControl::begin()
 // platform until the reference distance is restored.
 void PlatformControl::update()
 {
-    float distance = getSensorDistance();
+    float distance = getSensorMinDistance();
 
     // safety: stop only when moving INTO the active limit switch
     if (isBottomLimit() && state == MOVING_DOWN)
@@ -49,11 +54,11 @@ void PlatformControl::update()
     switch (state)
     {
     case IDLE:
-        // trigger compensation whenever ullage drops below reference
-        if (!manualMode && distance > 0 && distance <= referenceDistance)
+        // trigger compensation only when ALL sensors read below reference
+        if (!manualMode && allSensorsBelow(referenceDistance))
         {
             compensationTarget = distance + COMPENSATION_STEP;
-            Serial1.print("platform: lowering 5cm (ullage ");
+            Serial1.print("platform: lowering 5cm (min ullage ");
             Serial1.print(distance);
             Serial1.println("cm)");
             moveDown();
@@ -61,8 +66,8 @@ void PlatformControl::update()
         break;
 
     case MOVING_DOWN:
-        // stop when platform has lowered by 5cm (ullage increased by 5cm)
-        if (!manualMode && distance >= compensationTarget)
+        // stop when the closest sensor shows ullage increased by 5cm
+        if (!manualMode && distance > 0 && distance >= compensationTarget)
         {
             Serial1.println("platform: compensation done, stopping");
             stop();

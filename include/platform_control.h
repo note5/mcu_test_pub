@@ -37,7 +37,8 @@ private:
     // pause (ms) before reversing motor direction
     static constexpr unsigned long DEAD_TIME_MS = 1000;
 
-    float getSensorDistance();
+    float getSensorMinDistance();
+    bool allSensorsBelow(float threshold);
 
 public:
     PlatformControl(uint8_t topPin, uint8_t bottomPin,

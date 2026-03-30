@@ -32,6 +32,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            cursor: pointer;
         }
         .dot {
             width: 12px; height: 12px;
@@ -53,20 +54,37 @@
         }
         .card h3 { font-size: 1.2em; margin-bottom: 14px; }
 
-        .sensor-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 14px;
+        .sensor-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .sensor-row.center {
+            justify-content: center;
         }
         .sensor-box {
             background: rgba(0,0,0,0.25);
             border-radius: 10px;
-            padding: 14px;
+            padding: 12px;
             text-align: center;
+            flex: 0 1 45%;
         }
-        .sensor-box .label { font-size: 0.82em; opacity: 0.7; margin-bottom: 4px; }
-        .sensor-box .value { font-size: 1.6em; font-weight: bold; }
+        .sensor-row.center .sensor-box {
+            flex: 0 1 45%;
+        }
+        .sensor-box .label { font-size: 0.78em; opacity: 0.7; margin-bottom: 4px; }
+        .sensor-box .value { font-size: 1.4em; font-weight: bold; }
+
+        .ref-box {
+            background: rgba(0,0,0,0.25);
+            border-radius: 10px;
+            padding: 12px;
+            text-align: center;
+            margin-bottom: 14px;
+        }
+        .ref-box .label { font-size: 0.78em; opacity: 0.7; margin-bottom: 4px; }
+        .ref-box .value { font-size: 1.4em; font-weight: bold; }
 
         .limit-row {
             display: flex;
@@ -158,24 +176,46 @@
         <h1>Platform Manual Control</h1>
     </header>
 
-    <!-- Connection status -->
-    <div class="connection-bar">
+    <!-- Connection status (click to connect) -->
+    <div class="connection-bar" id="connBar" onclick="toggleConnection()">
         <div class="dot" id="connDot"></div>
-        <span id="connText">Checking MCU connection...</span>
+        <span id="connText">Click to connect via Web Serial</span>
     </div>
 
-    <!-- Ultrasonic Sensors -->
+    <!-- Ultrasonic Sensors (5-sensor layout) -->
     <div class="card">
-        <h3>Ultrasonic Sensors</h3>
-        <div class="sensor-grid">
+        <h3>Ultrasonic Sensors (cm)</h3>
+        <!-- corners + center arranged spatially -->
+        <div class="sensor-row">
             <div class="sensor-box">
-                <div class="label">HC-SR05 (cm)</div>
-                <div class="value" id="hcLevel">--</div>
+                <div class="label">Corner 1</div>
+                <div class="value" id="hc1">--</div>
             </div>
             <div class="sensor-box">
-                <div class="label">Platform Ref (cm)</div>
-                <div class="value" id="platformRef">--</div>
+                <div class="label">Corner 2</div>
+                <div class="value" id="hc2">--</div>
             </div>
+        </div>
+        <div class="sensor-row center">
+            <div class="sensor-box">
+                <div class="label">Center</div>
+                <div class="value" id="hc0">--</div>
+            </div>
+        </div>
+        <div class="sensor-row">
+            <div class="sensor-box">
+                <div class="label">Corner 3</div>
+                <div class="value" id="hc3">--</div>
+            </div>
+            <div class="sensor-box">
+                <div class="label">Corner 4</div>
+                <div class="value" id="hc4">--</div>
+            </div>
+        </div>
+
+        <div class="ref-box">
+            <div class="label">Platform Ref (cm)</div>
+            <div class="value" id="platformRef">--</div>
         </div>
     </div>
 
@@ -202,12 +242,12 @@
 
         <!-- Up / Down -->
         <div class="btn-row">
-            <button id="btnUp" onclick="platformCmd('platform-up')">▲ UP</button>
-            <button id="btnDown" onclick="platformCmd('platform-down')">▼ DOWN</button>
+            <button id="btnUp" onclick="platformCmd('platform-up')">&#9650; UP</button>
+            <button id="btnDown" onclick="platformCmd('platform-down')">&#9660; DOWN</button>
         </div>
 
         <!-- Stop -->
-        <button class="stop-btn" onclick="platformCmd('platform-stop')">■ STOP</button>
+        <button class="stop-btn" onclick="platformCmd('platform-stop')">&#9632; STOP</button>
     </div>
 
     <!-- Serial Log -->
@@ -218,96 +258,152 @@
 </div>
 
 <script>
-    const BASE = '';  // same origin — FastAPI serves this page
+    let port = null;
+    let reader = null;
+    let writer = null;
+    let readBuffer = '';
+    let connected = false;
+    let pollTimer = null;
 
-    // ── Connection check ──────────────────────────────────────────────
-    async function checkConnection() {
-        try {
-            const r = await fetch(BASE + '/platform/connected');
-            const d = await r.json();
-            document.getElementById('connDot').classList.toggle('connected', d.connected);
-            document.getElementById('connText').textContent = d.connected ? 'MCU Connected' : 'MCU Disconnected';
-        } catch (e) {
-            document.getElementById('connText').textContent = 'API unreachable';
+    // ── Web Serial connect / disconnect ─────────────────────────────────
+    async function toggleConnection() {
+        if (connected) {
+            await disconnect();
+        } else {
+            await connect();
         }
     }
 
-    // ── Send command ──────────────────────────────────────────────────
+    async function connect() {
+        try {
+            port = await navigator.serial.requestPort();
+            await port.open({ baudRate: 9600, bufferSize: 4096 });
+
+            const decoder = new TextDecoderStream();
+            port.readable.pipeTo(decoder.writable);
+            reader = decoder.readable.getReader();
+
+            const encoder = new TextEncoderStream();
+            encoder.readable.pipeTo(port.writable);
+            writer = encoder.writable.getWriter();
+
+            connected = true;
+            updateConnUI();
+            appendLog('Connected');
+            readLoop();
+            startPolling();
+        } catch (e) {
+            appendLog('Connection failed: ' + e.message);
+        }
+    }
+
+    async function disconnect() {
+        connected = false;
+        stopPolling();
+        try { if (reader) reader.cancel(); } catch (e) {}
+        try { if (writer) writer.close(); } catch (e) {}
+        try { if (port) await port.close(); } catch (e) {}
+        reader = null;
+        writer = null;
+        port = null;
+        updateConnUI();
+        appendLog('Disconnected');
+    }
+
+    function updateConnUI() {
+        document.getElementById('connDot').classList.toggle('connected', connected);
+        document.getElementById('connText').textContent =
+            connected ? 'MCU Connected (click to disconnect)' : 'Click to connect via Web Serial';
+    }
+
+    // ── Read loop ───────────────────────────────────────────────────────
+    async function readLoop() {
+        while (connected && reader) {
+            try {
+                const { value, done } = await reader.read();
+                if (done) break;
+                readBuffer += value;
+                let idx;
+                while ((idx = readBuffer.indexOf('\n')) !== -1) {
+                    const line = readBuffer.substring(0, idx).trim();
+                    readBuffer = readBuffer.substring(idx + 1);
+                    if (line) processLine(line);
+                }
+            } catch (e) {
+                if (connected) {
+                    appendLog('Read error: ' + e.message);
+                    await disconnect();
+                }
+                break;
+            }
+        }
+    }
+
+    // ── Send command ────────────────────────────────────────────────────
     async function sendCmd(cmd) {
+        if (!connected || !writer) {
+            appendLog('Not connected');
+            return;
+        }
         try {
-            const r = await fetch(BASE + '/platform/command', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cmd })
-            });
-            const d = await r.json();
-            if (d.response) processResponse(d.response);
-            appendLog(`> ${cmd}  ${d.response ? '← ' + d.response : ''}`);
-            return d.response || '';
+            await writer.write(cmd + '\n');
         } catch (e) {
-            appendLog(`Error sending ${cmd}: ${e}`);
-            return '';
+            appendLog('Write error: ' + e.message);
+            await disconnect();
         }
     }
 
-    // ── Platform buttons ──────────────────────────────────────────────
+    // ── Parse MCU lines ─────────────────────────────────────────────────
+    function processLine(line) {
+        appendLog(line);
+
+        // platform-status:idle,ref:10.00,top:0,bottom:1
+        if (line.startsWith('platform-status:')) {
+            const body = line.slice('platform-status:'.length);
+            const parts = body.split(',');
+            document.getElementById('platformState').textContent = parts[0] || '--';
+            for (const p of parts) {
+                if (p.startsWith('ref:'))
+                    document.getElementById('platformRef').textContent =
+                        parseFloat(p.slice(4)).toFixed(1);
+                if (p.startsWith('top:'))
+                    document.getElementById('topLimitDot')
+                        .classList.toggle('active', p.slice(4) === '1');
+                if (p.startsWith('bottom:'))
+                    document.getElementById('bottomLimitDot')
+                        .classList.toggle('active', p.slice(7) === '1');
+            }
+        }
+        // hc-level:12.3,14.5,11.2,13.8,12.0
+        else if (line.startsWith('hc-level:')) {
+            const vals = line.slice('hc-level:'.length).split(',');
+            for (let i = 0; i < 5; i++) {
+                const el = document.getElementById('hc' + i);
+                if (!el) continue;
+                const v = parseFloat(vals[i]);
+                el.textContent = isNaN(v) || v < 0 ? '--' : v.toFixed(1);
+            }
+        }
+    }
+
+    // ── Platform buttons ────────────────────────────────────────────────
     function platformCmd(cmd) {
         document.getElementById('btnUp').classList.remove('active');
         document.getElementById('btnDown').classList.remove('active');
         if (cmd === 'platform-up')   document.getElementById('btnUp').classList.add('active');
         if (cmd === 'platform-down') document.getElementById('btnDown').classList.add('active');
-        sendCmd(cmd).then(() => {
-            // refresh status shortly after
-            setTimeout(pollStatus, 400);
-        });
-    }
-
-    // ── Parse MCU response lines ──────────────────────────────────────
-    function processResponse(raw) {
-        for (const line of raw.split('\n')) {
-            const t = line.trim();
-            if (!t) continue;
-
-            // platform-status:idle,ref:15.00,top:0,bottom:1
-            if (t.startsWith('platform-status:')) {
-                const body = t.slice('platform-status:'.length);
-                const parts = body.split(',');
-                document.getElementById('platformState').textContent = parts[0] || '--';
-                for (const p of parts) {
-                    if (p.startsWith('ref:'))
-                        document.getElementById('platformRef').textContent =
-                            parseFloat(p.slice(4)).toFixed(1);
-                    if (p.startsWith('top:'))
-                        document.getElementById('topLimitDot')
-                            .classList.toggle('active', p.slice(4) === '1');
-                    if (p.startsWith('bottom:'))
-                        document.getElementById('bottomLimitDot')
-                            .classList.toggle('active', p.slice(7) === '1');
-                }
-            }
-            // hc-level:34.5
-            else if (t.startsWith('hc-level:')) {
-                const val = parseFloat(t.slice(9));
-                document.getElementById('hcLevel').textContent =
-                    isNaN(val) ? '--' : val.toFixed(1);
-            }
+        if (cmd === 'platform-stop') {
+            document.getElementById('btnUp').classList.remove('active');
+            document.getElementById('btnDown').classList.remove('active');
         }
+        sendCmd(cmd);
     }
 
-    // ── Polling ───────────────────────────────────────────────────────
-    async function pollStatus() {
-        const r = await fetch(BASE + '/platform/status');
-        const d = await r.json();
-        if (d.response) processResponse(d.response);
-    }
+    // ── Polling (disabled — MCU auto-reports every 2s) ────────────────
+    function startPolling() {}
+    function stopPolling() {}
 
-    async function pollHc() {
-        const r = await fetch(BASE + '/platform/hc-level');
-        const d = await r.json();
-        if (d.response) processResponse(d.response);
-    }
-
-    // ── Log ───────────────────────────────────────────────────────────
+    // ── Log ─────────────────────────────────────────────────────────────
     function appendLog(text) {
         const el = document.getElementById('log');
         el.textContent += text + '\n';
@@ -315,15 +411,6 @@
         const lines = el.textContent.split('\n');
         if (lines.length > 60) el.textContent = lines.slice(-60).join('\n');
     }
-
-    // ── Init ──────────────────────────────────────────────────────────
-    checkConnection();
-    pollStatus();
-    pollHc();
-
-    setInterval(checkConnection, 5000);
-    setInterval(pollStatus,      2000);
-    setInterval(pollHc,          2000);
 </script>
 </body>
 </html>
