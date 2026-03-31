@@ -36,8 +36,8 @@ Communicates with a Web Serial dashboard (`manual.html`) over UART1 at 9600 baud
 | 24 | Service door reed switch | INPUT |
 | 25 | Left door reed switch | INPUT |
 | 26 | Right door reed switch | INPUT |
-| 30 | Top limit switch | INPUT |
-| 31 | Bottom limit switch | INPUT |
+| 30 | Bottom limit switch | INPUT |
+| 31 | Top limit switch | INPUT |
 
 ## Ultrasonic Sensor Array
 
@@ -58,6 +58,7 @@ A reading of `-1.0` means no valid echo has been received from that sensor yet.
 ```
 IDLE ──(all 5 sensors <= referenceDistance)──> MOVING_DOWN
 MOVING_DOWN ──(min ullage >= compensationTarget)──> IDLE
+MOVING_DOWN ──(MAX_MOVE_MS elapsed)──> IDLE
 MOVING_DOWN ──(bottom limit hit)──> IDLE
 MOVING_UP ──(top limit hit)──> IDLE
 Any ──(direction reversal)──> DEAD_TIME ──(1s)──> target state
@@ -71,13 +72,14 @@ Any ──(direction reversal)──> DEAD_TIME ──(1s)──> target state
 | `COMPENSATION_STEP` | 5.0 cm | How far the platform lowers per step |
 | `DEAD_TIME_MS` | 1000 ms | Pause before motor direction reversal |
 | `CHECK_INTERVAL_MS` | 10000 ms | How often the IDLE state checks if compensation is needed |
+| `MAX_MOVE_MS` | 1000 ms | Safety cap — motor stops after this time regardless of sensor readings |
 | `manualMode` | false | Set to true to disable auto-compensation |
 
 ### Compensation Logic
 
 1. Every 10 seconds (while IDLE), the controller reads all 5 sensors
 2. If **all** sensors report a distance at or below `referenceDistance`, the bin is considered uniformly full
-3. The platform lowers until the minimum sensor reading increases by `COMPENSATION_STEP` (5 cm)
+3. The platform lowers until the minimum sensor reading increases by `COMPENSATION_STEP` (5 cm), or `MAX_MOVE_MS` (1s) elapses — whichever comes first
 4. Limit switches override everything — the motor stops immediately if the platform hits a physical limit
 
 ### Safety

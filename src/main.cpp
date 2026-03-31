@@ -27,8 +27,8 @@ const uint8_t echoPins[] = {23, 0, 1, 2, 3};  // center, corner1-4
 HcSr05 hc_sensors(22, echoPins, 5);
 
 // --- Platform lift motor ---
-// Pin order: topLimitSwitch=30, bottomLimitSwitch=31, motorUp=21, motorDown=20
-PlatformControl platform(30, 31, 21, 20, &hc_sensors);
+// Pin order: topLimitSwitch=31, bottomLimitSwitch=30, motorUp=21, motorDown=20
+PlatformControl platform(31, 30, 21, 20, &hc_sensors);
 
 // --- Door reed switches ---
 // Self-register into DoorState::doors[] for batch reporting

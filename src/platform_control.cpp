@@ -7,7 +7,7 @@ PlatformControl::PlatformControl(uint8_t topPin, uint8_t bottomPin,
       motorUpPin(upPin), motorDownPin(downPin),
       hcSensor(hc),
       state(IDLE), pendingState(IDLE), deadTimeStart(0), compensationTarget(0),
-      lastCheckTime(0) {}
+      moveStartTime(0), lastCheckTime(0) {}
 
 // Null-safe wrappers — return safe defaults when no sensor is attached
 // (allows testing platform motor logic without a connected HC-SR05)
@@ -81,6 +81,7 @@ void PlatformControl::update()
                 // Target: current distance + 5cm. As platform lowers,
                 // ullage increases until it reaches this value.
                 compensationTarget = distance + COMPENSATION_STEP;
+                moveStartTime = millis();
                 Serial1.print("platform: lowering 5cm (min ullage ");
                 Serial1.print(distance);
                 Serial1.println("cm)");
@@ -90,12 +91,19 @@ void PlatformControl::update()
         break;
 
     case MOVING_DOWN:
-        // Auto-stop: once the minimum sensor reading reaches the target,
-        // the platform has lowered enough for this compensation step
-        if (!manualMode && distance > 0 && distance >= compensationTarget)
+        // Auto-stop: sensor target reached OR time safety cap exceeded
+        if (!manualMode)
         {
-            Serial1.println("platform: compensation done, stopping");
-            stop();
+            if (distance > 0 && distance >= compensationTarget)
+            {
+                Serial1.println("platform: compensation done, stopping");
+                stop();
+            }
+            else if (millis() - moveStartTime >= MAX_MOVE_MS)
+            {
+                Serial1.println("platform: max move time reached, stopping");
+                stop();
+            }
         }
         break;
 

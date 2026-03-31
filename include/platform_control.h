@@ -9,7 +9,7 @@
  * State machine (non-blocking, driven by update() each loop iteration):
  *
  *   IDLE ──(all sensors <= referenceDistance)──> MOVING_DOWN
- *   MOVING_DOWN ──(ullage restored by 5cm)──> IDLE
+ *   MOVING_DOWN ──(ullage restored by 5cm OR MAX_MOVE_MS elapsed)──> IDLE
  *   Any state ──(direction reversal requested)──> DEAD_TIME ──(1s elapsed)──> target state
  *
  * Safety:
@@ -45,9 +45,12 @@ private:
     State pendingState;               // which direction to resume after dead time elapses
     unsigned long deadTimeStart;
     float compensationTarget;         // ullage reading (cm) at which to stop lowering
+    unsigned long moveStartTime;      // when the motor started moving for compensation
 
     // Platform drops 5cm per compensation event to match typical bottle height
     static constexpr float COMPENSATION_STEP = 5.0;
+    // Safety cap: stop motor after this many ms regardless of sensor readings
+    static constexpr unsigned long MAX_MOVE_MS = 1000;
     // 1s motor-off pause before reversing — protects H-bridge from shoot-through
     static constexpr unsigned long DEAD_TIME_MS = 1000;
     // Only re-evaluate compensation every 10s to avoid reacting to transient readings
